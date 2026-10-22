@@ -1,6 +1,7 @@
-// Zyvorli service worker: lets the app open instantly and work offline.
-const V = 'zyvorli-v1';
-const FILES = ['./', 'index.html', 'manifest.webmanifest', 'icon-192.png', 'icon-512.png', 'icon-maskable-512.png', 'apple-touch-icon.png', 'favicon.png'];
+// Zyvorli service worker: opens fast and keeps working offline.
+// Network first, so updates always arrive; the saved copy is used when offline.
+const V = 'zyvorli-v2';
+const FILES = ['./', 'index.html', 'config.js', 'supabase.js', 'manifest.webmanifest', 'icon-192.png', 'icon-512.png', 'icon-maskable-512.png', 'apple-touch-icon.png', 'favicon.png'];
 
 self.addEventListener('install', e => {
   e.waitUntil(caches.open(V).then(c => c.addAll(FILES)).then(() => self.skipWaiting()));
@@ -16,14 +17,10 @@ self.addEventListener('activate', e => {
 
 self.addEventListener('fetch', e => {
   const req = e.request;
-  if (req.method !== 'GET' || new URL(req.url).origin !== location.origin) return;
-  if (req.mode === 'navigate') {
-    // Pages: try the network first so updates arrive, fall back to the saved copy offline.
-    e.respondWith(
-      fetch(req).then(res => { const copy = res.clone(); caches.open(V).then(c => c.put('index.html', copy)); return res; })
-                .catch(() => caches.match('index.html'))
-    );
-    return;
-  }
-  e.respondWith(caches.match(req).then(r => r || fetch(req).then(res => { const copy = res.clone(); caches.open(V).then(c => c.put(req, copy)); return res; })));
+  if (req.method !== 'GET' || new URL(req.url).origin !== location.origin) return; // never cache Supabase calls
+  e.respondWith(
+    fetch(req)
+      .then(res => { const copy = res.clone(); caches.open(V).then(c => c.put(req, copy)); return res; })
+      .catch(() => caches.match(req).then(r => r || (req.mode === 'navigate' ? caches.match('index.html') : undefined)))
+  );
 });

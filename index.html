@@ -211,6 +211,9 @@ textarea,.bar input{font-size:16px}
 @media(max-width:499px){.phone{width:100%;height:100%}}
 @supports(height:100dvh){html,body{height:100dvh}}
 body{overscroll-behavior:none}
+.otp1{text-align:center;font-size:26px;font-weight:700;letter-spacing:.35em;padding:16px 10px}
+.a-in.shake{animation:shk .4s}
+.ck{width:28px;display:grid;place-items:center;flex:none}
 .empty b{display:block;color:var(--text);font-size:16px;margin-bottom:6px}
 .row{user-select:none;-webkit-user-select:none;-webkit-touch-callout:none}
 .row.selected{background:#7c4dff4d;border-color:#a58bff}
@@ -238,35 +241,36 @@ body{overscroll-behavior:none}
     <div class="a-step" id="s-phone">
       <button class="a-back" onclick="authBack()"><span data-ic="back"></span></button>
       <h2 id="phTitle"></h2>
-      <p class="a-sub">Enter your mobile number. We will send a 6-digit code by SMS to confirm it.</p>
+      <p class="a-sub" id="phSub">Enter your mobile number. We will send a 6-digit code by SMS to confirm it.</p>
       <div class="a-field">
         <select id="cc"><option>+91</option><option>+1</option><option>+44</option><option>+971</option><option>+34</option><option>+61</option></select>
         <input id="ph" type="tel" inputmode="tel" placeholder="Mobile number" maxlength="14" autocomplete="tel-national">
       </div>
       <div class="a-err" id="phErr"></div>
       <div class="a-spacer"></div>
-      <button class="a-btn pri" onclick="sendPhone()">Send code</button>
+      <button class="a-btn pri" id="phBtn" onclick="sendPhone()">Send code</button>
     </div>
     <div class="a-step" id="s-otp">
       <button class="a-back" onclick="authBack()"><span data-ic="back"></span></button>
       <h2 id="otpTitle"></h2>
       <p class="a-sub" id="otpSub"></p>
-      <div class="otp" id="otpBox"></div>
+      <input class="a-in otp1" id="otpIn" type="text" inputmode="numeric" autocomplete="one-time-code" maxlength="8" placeholder="Enter code" aria-label="Verification code">
       <div class="a-err" id="otpErr"></div>
+      <p class="a-fine" id="otpHint" style="text-align:left;margin:10px 0 0"></p>
       <div class="demo-pill" id="demoCode"></div>
       <button class="a-link" id="resend" onclick="resend()"></button>
       <div class="a-spacer"></div>
-      <button class="a-btn pri" onclick="verifyOtp()">Verify</button>
+      <button class="a-btn pri" id="vBtn" onclick="verifyOtp()">Verify</button>
     </div>
     <div class="a-step" id="s-email">
       <button class="a-back" onclick="authBack()"><span data-ic="back"></span></button>
       <h2>Confirm your Gmail</h2>
-      <p class="a-sub">Your number is verified. Now add your Gmail address. We will send a code to confirm it.</p>
+      <p class="a-sub" id="emSub">Your number is verified. Now add your Gmail address. We will send a code to confirm it.</p>
       <input class="a-in" id="em" type="email" inputmode="email" autocomplete="email" placeholder="yourname@gmail.com">
       <div class="a-err" id="emErr"></div>
       <div class="a-spacer"></div>
-      <button class="a-btn pri" onclick="sendEmail()">Send code to Gmail</button>
-      <button class="a-btn" onclick="googleSignIn()">Continue with Google</button>
+      <button class="a-btn pri" id="emBtn" onclick="sendEmail()">Send code to Gmail</button>
+      <button class="a-btn" id="gBtn" onclick="googleSignIn()">Continue with Google</button>
     </div>
     <div class="a-step" id="s-perm">
       <h2>Allow access</h2>
@@ -334,6 +338,8 @@ body{overscroll-behavior:none}
   </div>
 </div>
 
+<script src="supabase.js"></script>
+<script src="config.js"></script>
 <script>
 const $=id=>document.getElementById(id);
 const ICONS={
@@ -456,7 +462,7 @@ function renderList(){
   }else{
     if(arch.length)box.appendChild(navRow(ic('archive')+' Archived chats',arch.length+' hidden',()=>{viewArch=true;renderList()}));
     vis.filter(c=>!c.archived).forEach(c=>box.appendChild(chatRow(c)));
-    if(!vis.length)box.appendChild(empty('No chats yet','Open the Contacts tab to start a conversation.'));
+    if(!vis.length)box.appendChild(empty('No chats yet',LIVE?'Your account is live. Messaging between phones is the next update.':'Open the Contacts tab to start a conversation.'));
     if(vis.length&&!sel.size){const h=document.createElement('div');h.className='hint';h.textContent='Tip: press and hold a chat to archive, clear, block or delete';box.appendChild(h)}
   }
 }
@@ -638,57 +644,119 @@ $('alogo').src=document.querySelector('#splash .mk').src;
 function show(id){document.querySelectorAll('.a-step').forEach(e=>e.classList.toggle('on',e.id==='s-'+id));A.cur=id}
 function go(id){A.stack.push(A.cur);show(id)}
 function authBack(){clearInterval(A.timer);show(A.stack.pop()||'welcome')}
-function startAuth(m){A.mode=m;$('phTitle').textContent=m==='register'?'Create your account':'Log in to your account';go('phone');setTimeout(()=>$('ph').focus(),380)}
+const CFG=window.ZV_CONFIG||{};
+const HAVE_CFG=!!(CFG.url&&CFG.key);
+const LIB_OK=!!(window.supabase&&window.supabase.createClient);
+let sb=null;
+if(HAVE_CFG&&LIB_OK){try{sb=window.supabase.createClient(CFG.url,CFG.key,{auth:{persistSession:true,autoRefreshToken:true,detectSessionInUrl:false}})}catch(e){sb=null}}
+const LIVE=!!sb;
+let busy=false;
+function setBtn(id,t,off){const b=$(id);b.textContent=t;b.disabled=!!off}
+function errMsg(e){
+  const m=String((e&&(e.message||e.msg))||'').toLowerCase(),c=(e&&(e.code||e.error_code))||'';
+  if(c==='over_email_send_rate_limit'||m.indexOf('email rate limit')>-1)return 'Too many emails were requested. The free email sender allows only a few per hour. Please wait a while and try again.';
+  if(c==='over_request_rate_limit'||m.indexOf('security purposes')>-1)return 'Please wait a minute before asking for another code.';
+  if(c==='otp_disabled'||m.indexOf('signups not allowed')>-1)return 'No account was found for this Gmail. Please go back and tap Register first.';
+  if(c==='otp_expired'||m.indexOf('expired')>-1||m.indexOf('invalid')>-1)return 'That code is not correct or has expired. Please check it, or ask for a new code.';
+  if(m.indexOf('failed to fetch')>-1||m.indexOf('network')>-1)return 'No internet connection. Please check your network and try again.';
+  return (e&&e.message)?e.message:'Something went wrong. Please try again.';
+}
+function setEmailText(){
+  $('emSub').textContent=LIVE?(A.mode==='login'?'Enter your Gmail address. We will email you a code to log in.':'Add your Gmail address. We will email you a code to confirm it.'):'Your number is verified. Now add your Gmail address. We will send a code to confirm it.';
+  $('gBtn').style.display=LIVE?'none':'';
+}
+function startAuth(m){
+  if(HAVE_CFG&&!LIB_OK){toast('Could not load the sign-in library. Check your internet and reload.');return}
+  A.mode=m;
+  if(LIVE&&m==='login'){setEmailText();go('email');setTimeout(()=>$('em').focus(),380);return}
+  $('phTitle').textContent=m==='register'?'Create your account':'Log in to your account';
+  $('phSub').textContent=LIVE?'Add your mobile number. SMS verification is coming soon, so for now it is only saved on your profile.':'Enter your mobile number. We will send a 6-digit code by SMS to confirm it.';
+  $('phBtn').textContent=LIVE?'Continue':'Send code';
+  go('phone');setTimeout(()=>$('ph').focus(),380);
+}
 function genCode(){A.code=String(Math.floor(100000+Math.random()*900000))}
 function maskPhone(p){const a=p.split(' ');return a[0]+' '+a.slice(1).join('').replace(/.(?=.{3})/g,'x')}
 function maskEmail(v){return v[0]+'***'+v.slice(v.indexOf('@'))}
 function sendPhone(){
   const d=$('ph').value.replace(/\D/g,'');
   if(d.length<7||d.length>12){$('phErr').textContent='Enter a valid mobile number.';return}
-  $('phErr').textContent='';A.phone=$('cc').value+' '+$('ph').value.trim();showOtp('phone');
+  $('phErr').textContent='';A.phone=$('cc').value+' '+$('ph').value.trim();
+  if(LIVE){setEmailText();go('email');setTimeout(()=>$('em').focus(),380);return}
+  showOtp('phone');
 }
-function code(){return [...$('otpBox').children].map(i=>i.value).join('')}
 function showOtp(kind){
   A.kind=kind;genCode();
   $('otpTitle').textContent=kind==='phone'?'Enter the SMS code':'Check your Gmail';
-  $('otpSub').textContent='We sent a 6-digit code to '+(kind==='phone'?maskPhone(A.phone):maskEmail(A.email))+'.';
+  $('otpSub').textContent=LIVE?'We emailed a code to '+maskEmail(A.email)+'. Enter it below.':'We sent a 6-digit code to '+(kind==='phone'?maskPhone(A.phone):maskEmail(A.email))+'.';
+  $('otpHint').textContent=LIVE?'Not there yet? Check your Spam or Promotions folder. The email comes from Supabase.':'';
+  $('demoCode').style.display=LIVE?'none':'';
   $('demoCode').textContent='Demo mode: your code is '+A.code;
   $('otpErr').textContent='';
-  const box=$('otpBox');box.innerHTML='';
-  for(let i=0;i<6;i++){
-    const x=document.createElement('input');x.maxLength=1;x.inputMode='numeric';x.autocomplete='one-time-code';
-    x.addEventListener('input',()=>{x.value=x.value.replace(/\D/g,'');if(x.value&&i<5)box.children[i+1].focus();if(code().length===6)setTimeout(verifyOtp,250)});
-    x.addEventListener('keydown',e=>{if(e.key==='Backspace'&&!x.value&&i>0)box.children[i-1].focus()});
-    x.addEventListener('paste',e=>{const t=((e.clipboardData&&e.clipboardData.getData('text'))||'').replace(/\D/g,'').slice(0,6);if(!t)return;e.preventDefault();[...t].forEach((ch,k)=>{box.children[k].value=ch});box.children[Math.min(t.length,5)].focus();if(t.length===6)setTimeout(verifyOtp,250)});
-    box.appendChild(x);
-  }
-  go('otp');setTimeout(()=>box.children[0].focus(),380);startTimer();
+  const i=$('otpIn');i.value='';
+  go('otp');setTimeout(()=>i.focus(),380);startTimer(LIVE?60:30);
 }
-function startTimer(){
-  let n=30;const b=$('resend');b.disabled=true;clearInterval(A.timer);b.textContent='Resend code in '+n+'s';
+function startTimer(n){
+  n=n||30;const b=$('resend');b.disabled=true;clearInterval(A.timer);b.textContent='Resend code in '+n+'s';
   A.timer=setInterval(()=>{n--;if(n<=0){clearInterval(A.timer);b.disabled=false;b.textContent='Resend code'}else b.textContent='Resend code in '+n+'s'},1000);
 }
-function resend(){genCode();$('demoCode').textContent='Demo mode: your code is '+A.code;$('otpErr').textContent='';[...$('otpBox').children].forEach(i=>{i.value=''});$('otpBox').children[0].focus();startTimer();toast('New code sent')}
-function verifyOtp(){
-  if(A.cur!=='otp')return;
-  const c=code(),b=$('otpBox');
-  if(c.length<6){$('otpErr').textContent='Enter all 6 digits.';return}
-  if(c!==A.code){
-    $('otpErr').textContent='That code is not correct. Please try again.';
-    b.classList.remove('shake');void b.offsetWidth;b.classList.add('shake');
-    [...b.children].forEach(i=>{i.value=''});b.children[0].focus();return;
+async function resend(){
+  $('otpErr').textContent='';$('otpIn').value='';
+  if(LIVE){
+    try{const r=await sb.auth.signInWithOtp({email:A.email,options:{shouldCreateUser:A.mode==='register'}});if(r.error)throw r.error;toast('New code sent');startTimer(60)}
+    catch(e){$('otpErr').textContent=errMsg(e)}
+    return;
   }
+  genCode();$('demoCode').textContent='Demo mode: your code is '+A.code;startTimer(30);toast('New code sent');
+}
+function shake(){const b=$('otpIn');b.classList.remove('shake');void b.offsetWidth;b.classList.add('shake')}
+async function verifyOtp(){
+  if(A.cur!=='otp'||busy)return;
+  const box=$('otpIn'),c=box.value.trim();
+  if(c.length<6){$('otpErr').textContent='Enter the full code from your '+(LIVE?'email':'message')+'.';return}
+  if(LIVE){
+    busy=true;setBtn('vBtn','Checking...',1);
+    try{
+      const r=await sb.auth.verifyOtp({email:A.email,token:c,type:'email'});
+      if(r.error)throw r.error;
+      if(!r.data||!r.data.session)throw new Error('Could not start your session. Please try again.');
+      clearInterval(A.timer);toast('Gmail verified');
+      await afterVerify(r.data.session.user);
+    }catch(e){$('otpErr').textContent=errMsg(e);shake();box.value='';box.focus()}
+    busy=false;setBtn('vBtn','Verify',0);return;
+  }
+  if(c!==A.code){$('otpErr').textContent='That code is not correct. Please try again.';shake();box.value='';box.focus();return}
   clearInterval(A.timer);
-  if(A.kind==='phone'){toast('Number verified');A.stack=['welcome'];show('email');setTimeout(()=>$('em').focus(),380)}
+  if(A.kind==='phone'){toast('Number verified');A.stack=['welcome'];setEmailText();show('email');setTimeout(()=>$('em').focus(),380)}
   else{toast('Gmail verified');afterVerify()}
 }
-function sendEmail(){
+async function sendEmail(){
+  if(busy)return;
   const v=$('em').value.trim().toLowerCase();
   if(!/^[a-z0-9._%+-]+@gmail\.com$/.test(v)){$('emErr').textContent='Enter a valid Gmail address, like name@gmail.com.';return}
-  $('emErr').textContent='';A.email=v;showOtp('email');
+  $('emErr').textContent='';A.email=v;
+  if(!LIVE){showOtp('email');return}
+  busy=true;setBtn('emBtn','Sending...',1);
+  try{
+    const r=await sb.auth.signInWithOtp({email:v,options:{shouldCreateUser:A.mode==='register'}});
+    if(r.error)throw r.error;
+    busy=false;showOtp('email');
+  }catch(e){$('emErr').textContent=errMsg(e)}
+  busy=false;setBtn('emBtn','Send code to Gmail',0);
 }
 function googleSignIn(){A.email='you@gmail.com';toast('Signed in with Google');afterVerify()}
-function afterVerify(){A.stack=[];if(A.mode==='register'){buildPerms();show('perm')}else{show('restore');runRestore()}}
+async function afterVerify(user){
+  A.stack=[];
+  if(LIVE&&user){
+    A.user=user;const md=user.user_metadata||{};
+    if(A.mode==='register'&&A.phone&&!md.phone_number){try{await sb.auth.updateUser({data:{phone_number:A.phone}})}catch(e){}}
+    if(A.mode==='login'&&md.phone_number)A.phone=md.phone_number;
+    if(A.mode==='login'){finishAuth('login');return}
+    buildPerms();show('perm');return;
+  }
+  if(A.mode==='register'){buildPerms();show('perm')}else{show('restore');runRestore()}
+}
+$('otpIn').addEventListener('input',e=>{e.target.value=e.target.value.replace(/\D/g,'').slice(0,8);if(!LIVE&&e.target.value.length===6)setTimeout(verifyOtp,200)});
+$('otpIn').addEventListener('keydown',e=>{if(e.key==='Enter')verifyOtp()});
 const PERMS=[['contacts','Contacts','Find friends who already use Zyvorli','user'],['mic','Microphone','Record and send voice messages','mic'],['camera','Camera','Take photos and record videos','camera'],['media','Photos and videos','Send images and videos from your gallery','image'],['files','Files','Share documents and big files like movies','file'],['notif','Notifications','Get alerts for new messages','bell']];
 function buildPerms(){
   const box=$('permList');box.innerHTML='';
@@ -736,12 +804,12 @@ function restoreOld(){
   );
 }
 function finishAuth(mode){
-  if(mode==='register'){chats.splice(0)}else{restoreOld()}
+  if(LIVE||mode==='register'){chats.splice(0)}else{restoreOld()}
   renderList();initProfile();nav('chats');$('auth').classList.add('done');
   setTimeout(()=>{$('auth').style.display='none'},700);
-  toast(mode==='register'?'Account created. Welcome to Zyvorli!':'Welcome back! Your chats are restored.');
+  toast(mode==='register'?'Account created. Welcome to Zyvorli!':(LIVE?'Welcome back!':'Welcome back! Your chats are restored.'));
 }
-function logout(){ask('Log out?','You can log back in anytime with your number and Gmail. Your chats stay saved in your account.','Log out',()=>{LS.del('zv_profile');location.reload()})}
+function logout(){ask('Log out?','You can log back in anytime with your number and Gmail. Your chats stay saved in your account.','Log out',()=>{const done=()=>{LS.del('zv_profile');location.reload()};if(LIVE){sb.auth.signOut().catch(function(){}).then(done)}else done()})}
 $('ph').addEventListener('keydown',e=>{if(e.key==='Enter')sendPhone()});
 $('em').addEventListener('keydown',e=>{if(e.key==='Enter')sendEmail()});
 const LS={get(k,d){try{const v=localStorage.getItem(k);return v?JSON.parse(v):d}catch(e){return d}},set(k,v){try{localStorage.setItem(k,JSON.stringify(v))}catch(e){}},del(k){try{localStorage.removeItem(k)}catch(e){}}};
@@ -763,15 +831,23 @@ function updateBadges(){
   $('bgK').style.display=granted?'none':'';
 }
 function initProfile(){
-  const em=A.email||'you@gmail.com',ph=A.phone||'+91 0000000000';
+  const md=(LIVE&&A.user&&A.user.user_metadata)||{};
+  const em=A.email||'you@gmail.com',ph=A.phone||md.phone_number||(LIVE?'Not added':'+91 0000000000');
   if(P&&P.email===em){P.phone=ph}else{
     const base=em.split('@')[0].replace(/[._\d]+/g,' ').trim()||'New user';
     const name=base.replace(/\b\w/g,c=>c.toUpperCase());
     P={name:name,username:(name.toLowerCase().replace(/[^a-z0-9]/g,'')+'_'+Math.floor(100+Math.random()*900)).slice(0,32),bio:'',photo:null,email:em,phone:ph};
   }
+  if(LIVE&&A.user){
+    if(md.display_name){P.name=md.display_name;P.username=md.username||P.username;P.bio=md.bio||''}
+    else{sb.auth.updateUser({data:{display_name:P.name,username:P.username,bio:P.bio}}).catch(function(){})}
+  }
   LS.set('zv_profile',P);renderNavAv();renderProfile();renderSettings();updateBadges();
 }
-function saveP(){LS.set('zv_profile',P);renderNavAv();renderProfile();renderSettings()}
+function saveP(){
+  LS.set('zv_profile',P);renderNavAv();renderProfile();renderSettings();
+  if(LIVE&&A.user)sb.auth.updateUser({data:{display_name:P.name,username:P.username,bio:P.bio}}).catch(function(){});
+}
 function nav(t){
   TAB=t;if(sel.size)clearSel();
   const map={chats:'rows',contacts:'contacts',settings:'settings',profile:'profile'};
@@ -893,9 +969,32 @@ function renderSettings(){
   sr.append(sl,pv);
   grp('Chats',[sr,tog('Enter key sends message','enterSend')]);
   grp('Data and storage',[pick('Auto-download media','dl',['Wi-Fi only','Wi-Fi and mobile','Never']),info('Clear cache',cacheMB.toFixed(1)+' MB',()=>{if(!cacheMB){toast('Cache is already empty');return}ask('Clear cache?','Temporary files are removed. Your chats and media stay safe.','Clear cache',()=>{cacheMB=0;renderSettings();toast('Cache cleared')})})]);
-  grp('About',[info('Version','Zyvorli 0.1 demo')]);
+  grp('About',[info('Version','Zyvorli 0.2'),info('Connection check',LIVE?'Run test':'Demo mode',LIVE?connCheck:null)]);
 }
 applyS();renderNavAv();updateBadges();
+async function connCheck(){
+  $('sh').textContent='Connection check';const box=$('disc');box.innerHTML='';$('sheet').classList.add('on');
+  const add=(ok,t,d)=>{const r=h('div','row flat');r.innerHTML='<div class="grow"><div class="name"></div><div class="last" style="white-space:normal"></div></div><div class="ck"></div>';r.querySelector('.name').textContent=t;r.querySelector('.last').textContent=d;r.querySelector('.ck').innerHTML=ok===true?ic('check'):ok===false?ic('close'):'';box.appendChild(r)};
+  add(true,'App settings found',CFG.url.replace('https://',''));
+  try{
+    const r=await fetch(CFG.url+'/auth/v1/settings',{headers:{apikey:CFG.key}});
+    if(!r.ok)throw new Error('HTTP '+r.status);
+    const j=await r.json(),ex=j.external||{};
+    add(true,'Server reachable','Supabase answered');
+    add(!!ex.email,'Email sign-in',ex.email?'Enabled':'Turned off. Enable Email in Authentication, Sign In / Providers.');
+    add(!j.disable_signup,'New accounts',j.disable_signup?'Sign-ups are disabled. Turn on allow new users to sign up.':'Allowed');
+    add(null,'Phone SMS',ex.phone?'A provider is enabled':'Not enabled (SMS comes later)');
+  }catch(e){add(false,'Server reachable','Could not reach Supabase: '+(e.message||'network error'))}
+  add(null,'Email template','The app cannot check this. If your email has a link and no code, edit the Magic Link template.');
+}
+if(LIVE){
+  chats.splice(0);
+  sb.auth.getSession().then(res=>{
+    const ses=res&&res.data&&res.data.session;if(!ses)return;
+    A.user=ses.user;A.email=ses.user.email||'';A.mode='login';A.phone=(ses.user.user_metadata||{}).phone_number||'';
+    initProfile();nav('chats');renderList();$('auth').style.display='none';
+  }).catch(function(){});
+}
 renderList();
 setTimeout(()=>$('splash').classList.add('done'),3900);
 setTimeout(()=>{const e=$('splash');if(e)e.remove()},4900);
