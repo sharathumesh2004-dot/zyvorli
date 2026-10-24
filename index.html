@@ -46,7 +46,13 @@ body{background:#05060f;color:var(--text);font:15px/1.4 system-ui,-apple-system,
 .badge{display:inline-block;background:var(--accent);color:#fff;border-radius:12px;padding:1px 8px;margin-top:4px}
 button{font:inherit;color:inherit;background:none;border:0;cursor:pointer;padding:6px 8px;border-radius:14px}
 .fab{position:absolute;right:20px;bottom:calc(92px + env(safe-area-inset-bottom,0px));width:58px;height:58px;display:grid;place-items:center;font-size:22px;background:#ffffff38;z-index:5}
-.msgs{padding:84px 12px 86px}
+.msgs{padding:84px 12px 86px;display:flex;flex-direction:column}
+.msgs>*{flex-shrink:0}
+.msgs>.hint:first-child{margin-top:auto}
+.msgs>.b.in{align-self:flex-start}
+.msgs>.b.me{align-self:flex-end;margin-left:0}
+.reqb{margin:8px 4px 10px;padding:12px 14px;border-radius:18px;background:var(--glass);border:1px solid var(--line);text-align:center;font-size:13px;color:var(--text)}
+.reqb .rb{display:flex;gap:8px;justify-content:center;margin-top:10px}
 .b{max-width:80%;padding:8px 12px 6px;margin:3px 0;border-radius:20px;width:fit-content;word-wrap:break-word;white-space:pre-wrap}
 .b.in{background:var(--glass);border:1px solid var(--line);border-bottom-left-radius:5px}
 .b.me{margin-left:auto;background:linear-gradient(135deg,#2f8bff,#9b3dff);border-bottom-right-radius:5px}
@@ -324,7 +330,7 @@ body{overscroll-behavior:none}
   </section>
 
   <section class="screen" id="search">
-    <div class="bar glass"><button onclick="closeSearch()"><span data-ic="back"></span></button><input id="q" type="search" inputmode="tel" autocomplete="off" placeholder="Number, name, group or @username" oninput="doSearch()"></div>
+    <div class="bar glass"><button onclick="closeSearch()"><span data-ic="back"></span></button><input id="q" type="search" inputmode="search" autocomplete="off" placeholder="Mobile number, @username or Gmail" oninput="doSearch()"></div>
     <div class="scroll" id="res"></div>
   </section>
 
@@ -410,25 +416,25 @@ function updateSelBar(){
   const allB=[...sel].every(c=>c.blocked);
   $('bBlk').innerHTML=ic('block')+'<small>'+(allB?'Unblock':'Block')+'</small>';
 }
-function doArch(){const un=viewArch,n=sel.size;sel.forEach(c=>{c.archived=!un});clearSel();toast(n+(n>1?' chats ':' chat ')+(un?'moved back to Chats':'archived · open Archived chats to see them'))}
+function doArch(){const un=viewArch,n=sel.size;sel.forEach(c=>{c.archived=!un;setFlag(c,'arch',!un)});clearSel();toast(n+(n>1?' chats ':' chat ')+(un?'moved back to Chats':'archived · open Archived chats to see them'))}
 function ask(title,note,label,fn){
   $('sh').textContent=title;
   $('disc').innerHTML='<div class="last" style="margin-bottom:12px;white-space:normal">'+note+'</div><button class="btn" id="yes" style="width:100%;padding:12px;background:#e53958">'+label+'</button><button id="no" style="width:100%;margin-top:4px">Cancel</button>';
   $('yes').onclick=()=>{closeSheet();fn()};$('no').onclick=closeSheet;
   $('sheet').classList.add('on');
 }
-function doClear(){const n=sel.size;ask('Clear '+n+(n>1?' chats':' chat')+'?','All messages are removed for you. The chat stays in your list.','Clear chat',()=>{sel.forEach(c=>{c.msgs=[];c.cleared=true;c.unread=0});clearSel();toast('Chat cleared')})}
+function doClear(){const n=sel.size;ask('Clear '+n+(n>1?' chats':' chat')+'?','All messages are removed for you. The chat stays in your list.','Clear chat',()=>{sel.forEach(c=>{markCut(c,'clr');c.msgs=[];c.cleared=true;c.unread=0});clearSel();toast('Chat cleared')})}
 function doBlock(){
   const people=[...sel].filter(c=>!c.group);
   if(!people.length){toast('Groups can’t be blocked. Leave the group instead.');return}
   const un=people.every(c=>c.blocked);
-  people.forEach(c=>{c.blocked=!un});clearSel();
+  people.forEach(c=>{c.blocked=!un;syncBlock(c,!un)});clearSel();
   toast(un?'Unblocked':'Blocked · they can no longer message you');
 }
 function doDelete(){
   const list=[...sel],n=list.length,hasPerson=list.some(c=>!c.group);
   const rm=withContact=>{
-    list.forEach(c=>{chats.splice(chats.indexOf(c),1);if(withContact&&!c.group){const i=contacts.findIndex(x=>x.n===c.name);if(i>-1)contacts.splice(i,1)}});
+    list.forEach(c=>{markCut(c,'del');chats.splice(chats.indexOf(c),1);if(withContact&&!c.group){const i=contacts.findIndex(x=>x.n===c.name);if(i>-1)contacts.splice(i,1)}});
     clearSel();renderContacts();toast(withContact?'Chat and contact deleted':'Chat deleted');
   };
   $('sh').textContent='Delete '+n+(n>1?' chats':' chat')+'?';
@@ -438,7 +444,7 @@ function doDelete(){
   $('no').onclick=closeSheet;
   $('sheet').classList.add('on');
 }
-function unblockCur(){cur.blocked=false;setBlocked();toast('Unblocked')}
+function unblockCur(){cur.blocked=false;syncBlock(cur,false);setBlocked();toast('Unblocked')}
 function setBlocked(){const b=cur&&cur.blocked;$('inp').style.display=b?'none':'';$('blk').style.display=b?'flex':'none'}
 function navRow(t,s,fn){const r=document.createElement('div');r.className='row flat';r.innerHTML='<div class="grow"><div class="name"></div><div class="last"></div></div>';r.querySelector('.name').innerHTML=t;r.querySelector('.last').textContent=s;r.onclick=fn;return r}
 function chatRow(c){
@@ -454,6 +460,7 @@ function chatRow(c){
 }
 function renderList(){
   const box=$('rows');box.innerHTML='';updateBadges();
+  if(!LIVE)box.appendChild(demoBanner());
   const vis=chats.filter(c=>c.msgs.length||c.cleared||c.blocked),arch=vis.filter(c=>c.archived);
   if(viewArch){
     box.appendChild(navRow(ic('back')+' Archived chats',arch.length+' hidden',()=>{viewArch=false;clearSel()}));
@@ -462,15 +469,16 @@ function renderList(){
   }else{
     if(arch.length)box.appendChild(navRow(ic('archive')+' Archived chats',arch.length+' hidden',()=>{viewArch=true;renderList()}));
     vis.filter(c=>!c.archived).forEach(c=>box.appendChild(chatRow(c)));
-    if(!vis.length)box.appendChild(empty('No chats yet',LIVE?'Your account is live. Messaging between phones is the next update.':'Open the Contacts tab to start a conversation.'));
+    if(!vis.length)box.appendChild(empty('No chats yet',LIVE?'Tap the pencil button, then search for a friend by mobile number, @username or Gmail.':'Open the Contacts tab to start a conversation.'));
     if(vis.length&&!sel.size){const h=document.createElement('div');h.className='hint';h.textContent='Tip: press and hold a chat to archive, clear, block or delete';box.appendChild(h)}
   }
 }
-function openChat(c){$('list').classList.add('away');cur=c;c.unread=0;$('cname').textContent=c.name;if(c.group)$('cav').innerHTML=ic('users');else $('cav').textContent=c.name[0];$('cav').style.background=c.color;$('cstat').textContent=c.group?c.who.length+1+' members':'online';setBlocked();renderMsgs();$('chat').classList.add('on')}
+function openChat(c){$('list').classList.add('away');cur=c;c.unread=0;if(LIVE&&c.uid)liveOpened(c);$('cname').textContent=c.name;if(c.group)$('cav').innerHTML=ic('users');else $('cav').textContent=c.name[0];$('cav').style.background=c.color;$('cstat').textContent=c.group?c.who.length+1+' members':(LIVE&&c.un?'@'+c.un:'online');setBlocked();renderMsgs();$('chat').classList.add('on')}
 function back(){$('chat').classList.remove('on');$('list').classList.remove('away');cur=null;renderList()}
 function bars(m){return Array.from({length:28},(_,i)=>'<i style="height:'+(6+Math.abs(Math.sin(i*1.7+m.seed))*18)+'px"></i>').join('')}
 function renderMsgs(){
   const box=$('msgs');box.innerHTML='<div class="hint">Messages show instantly, then confirm as sent, then read</div>';
+  if(LIVE)reqBanner(box);
   cur.msgs.forEach(m=>{
     const d=document.createElement('div');d.className='b '+(m.in?'in':'me');
     let h='';
@@ -509,7 +517,8 @@ function reply(c){if(c.blocked)return;
 function addMine(m){m.t=now();cur.msgs.push(m);track(m);return m}
 function act(){
   const v=$('ta').value.trim();
-  if(v){addMine({type:'text',text:v});$('ta').value='';grow();reply(cur);syncBtn();return}
+  if(v){if(LIVE){sendLive(v);return}addMine({type:'text',text:v});$('ta').value='';grow();reply(cur);syncBtn();return}
+  if(LIVE){toast('Voice messages are coming soon');return}
   if(!recording){
     recording=true;recS=0;$('rec').style.display='flex';$('ta').style.display='none';$('act').innerHTML=ic('send');
     recT=setInterval(()=>{recS++;$('rt').textContent=Math.floor(recS/60)+':'+String(recS%60).padStart(2,'0')},1000);
@@ -523,6 +532,7 @@ function grow(){const t=$('ta');t.style.height='auto';t.style.height=Math.min(t.
 $('ta').addEventListener('input',()=>{grow();syncBtn()});
 $('ta').addEventListener('keydown',e=>{if(e.key==='Enter'&&!e.shiftKey&&S.enterSend){e.preventDefault();act()}});
 function sendFile(){
+  if(LIVE){toast('Sending files is coming soon');return}
   const m=addMine({type:'file',name:'Movie_1080p.mkv',size:'2.4 GB',p:0,paused:false});
   const iv=setInterval(()=>{
     if(!cur||!cur.msgs.includes(m)){}
@@ -549,6 +559,7 @@ function groupRow(g){
   return r;
 }
 function openSheet(){
+  if(LIVE){openSheetLive();return}
   $('sh').textContent='New';
   const box=$('disc');box.innerHTML='';
   const c=document.createElement('div');c.className='row flat';c.style.cursor='pointer';
@@ -585,9 +596,10 @@ const contacts=[
  {n:'Priya',ph:'+91 90000 11122',on:1,color:'#ffb300'},
  {n:'Rahul',ph:'+91 98700 12345',on:1,color:'#00b0ff'},
  {n:'Sam',ph:'+91 97000 55544',on:1,color:'#ff7043'}];
-let granted=false;
-function startChat(c){let ch=chats.find(x=>x.name===c.n&&!x.group);if(!ch){ch={id:Date.now(),name:c.n,color:c.color,unread:0,who:[c.n],msgs:[]};chats.unshift(ch)}openChat(ch)}
+let granted=permGet('contacts');
+function startChat(c){if(LIVE&&c.id){RT.prof[c.id]=Object.assign({},RT.prof[c.id],{id:c.id,name:c.n,username:c.un});openChat(chatFor(c.id));return}let ch=chats.find(x=>x.name===c.n&&!x.group);if(!ch){ch={id:Date.now(),name:c.n,color:c.color,unread:0,who:[c.n],msgs:[]};chats.unshift(ch)}openChat(ch)}
 function renderContacts(){
+  if(LIVE){renderContactsLive();return}
   const box=$('contacts');box.innerHTML='';
   if(!granted){
     box.innerHTML='<div class="flat perm"><div>'+ic('user','lg')+'</div><div class="name">Find your friends</div><div class="last" style="white-space:normal">Allow Zyvorli to read your contacts to see who is already on the app. Contacts are only used to match people.</div><button class="btn" id="allow">Allow access</button></div>';
@@ -619,6 +631,7 @@ function openSearch(){$('list').classList.add('away');$('search').classList.add(
 function closeSearch(){$('search').classList.remove('on');$('list').classList.remove('away');$('q').blur()}
 function empty(t,s){const e=document.createElement('div');e.className='empty';e.innerHTML='<b></b><span></span>';e.querySelector('b').textContent=t;e.querySelector('span').textContent=s;return e}
 function doSearch(){
+  if(LIVE){doSearchLive();return}
   const raw=$('q').value.trim(),box=$('res');box.innerHTML='';
   if(!raw){box.appendChild(empty('Find people','Search by mobile number with country code (e.g. +91 98700 12345), or by name, group name or @username.'));return}
   const isNum=/^[+\d\s-]+$/.test(raw),d=raw.replace(/\D/g,''),q=raw.toLowerCase().replace('@','');
@@ -764,12 +777,12 @@ function buildPerms(){
     const r=document.createElement('div');r.className='prow flat';
     r.innerHTML='<div class="pi">'+ic(i)+'</div><div class="grow"><div class="name"></div><div class="last" style="white-space:normal"></div></div><button class="btn"></button>';
     r.querySelector('.name').textContent=t;r.querySelector('.last').textContent=d;
-    const b=r.querySelector('button');b.textContent='Allow';b.dataset.k=k;b.onclick=()=>grant(k,b);
+    const b=r.querySelector('button');b.textContent='Allow';b.dataset.k=k;b.onclick=()=>grant(k,b);if(permGet(k)){b.textContent='Allowed';b.className='btn off';b.disabled=true}
     box.appendChild(r);
   });
 }
-function grant(k,b){b.textContent='Allowed';b.className='btn off';b.disabled=true;if(k==='contacts')granted=true}
-function allowAll(){
+function grant(k,b){b.textContent='Allowed';b.className='btn off';b.disabled=true;permSet(k);if(k==='contacts')granted=true;if(k==='notif')askNotif()}
+function allowAll(){askNotif();
   [...$('permList').querySelectorAll('button')].forEach((b,i)=>setTimeout(()=>{if(!b.disabled)grant(b.dataset.k,b)},i*180));
   setTimeout(()=>finishAuth('register'),PERMS.length*180+500);
 }
@@ -843,10 +856,11 @@ function initProfile(){
     else{sb.auth.updateUser({data:{display_name:P.name,username:P.username,bio:P.bio}}).catch(function(){})}
   }
   LS.set('zv_profile',P);renderNavAv();renderProfile();renderSettings();updateBadges();
+  if(LIVE&&A.user)startLive();
 }
 function saveP(){
   LS.set('zv_profile',P);renderNavAv();renderProfile();renderSettings();
-  if(LIVE&&A.user)sb.auth.updateUser({data:{display_name:P.name,username:P.username,bio:P.bio}}).catch(function(){});
+  if(LIVE&&A.user)sb.auth.updateUser({data:{display_name:P.name,username:P.username,bio:P.bio,phone_number:(P.phone&&P.phone!=='Not added')?P.phone:''}}).catch(function(){});
 }
 function nav(t){
   TAB=t;if(sel.size)clearSel();
@@ -899,15 +913,18 @@ function postSheet(p){
 function editSheet(){
   $('sh').textContent='Edit info';const box=$('disc');box.innerHTML='';
   const mk=(lab,val,max,ph)=>{const w=h('div');w.appendChild(h('div','last',lab));const i=h('input','fld');i.value=val;i.maxLength=max;i.placeholder=ph;i.setAttribute('autocomplete','off');w.appendChild(i);box.appendChild(w);return i};
-  const iN=mk('Name',P.name,40,'Your name'),iU=mk('Username',P.username,32,'username'),iB=mk('Bio',P.bio,120,'A few words about you');
+  const iN=mk('Name',P.name,40,'Your name'),iU=mk('Username',P.username,32,'username'),iB=mk('Bio',P.bio,120,'A few words about you'),iP=LIVE?mk('Mobile number',/\d{7}/.test(P.phone||'')?P.phone:'',20,'+91 98765 43210'):{value:''};
   const err=h('div','a-err');box.appendChild(err);
   const sv=h('button','btn','Save changes');sv.style.cssText='width:100%;padding:13px';
-  sv.onclick=()=>{
+  sv.onclick=async()=>{
     const n=iN.value.trim(),u=iU.value.trim().replace(/^@/,''),lu=u.toLowerCase();
     if(!n){err.textContent='Please enter your name.';return}
+    if(LIVE&&iP.value.trim()&&phoneDigits(iP.value).length<10){err.textContent='Enter the full mobile number with country code.';return}
     if(!/^[a-zA-Z][a-zA-Z0-9_]{3,31}$/.test(u)){err.textContent='Username needs 4 to 32 letters, numbers or _ and must start with a letter.';return}
-    if(lu!==P.username.toLowerCase()&&(users.some(x=>x.un===lu)||groups.some(g=>g.un===lu))){err.textContent='That username is already taken.';return}
-    P.name=n;P.username=u;P.bio=iB.value.trim();saveP();closeSheet();toast('Profile updated');
+    if(!LIVE&&lu!==P.username.toLowerCase()&&(users.some(x=>x.un===lu)||groups.some(g=>g.un===lu))){err.textContent='That username is already taken.';return}
+    const pd=LIVE?phoneDigits(iP.value):'';
+    if(LIVE&&A.user){sv.disabled=true;let r;try{r=await sb.from('profiles').upsert({id:A.user.id,name:n,username:u,bio:iB.value.trim(),phone:pd||null},{onConflict:'id'})}catch(e){r={error:e}}sv.disabled=false;if(r.error){err.textContent=r.error.code==='23505'?'That username is already taken.':'Could not save. Check your connection.';return}}
+    P.name=n;P.username=u;P.bio=iB.value.trim();if(LIVE){P.phone=pd?iP.value.trim():'Not added';A.phone=pd?P.phone:''}saveP();closeSheet();toast('Profile updated');
   };
   box.appendChild(sv);$('sheet').classList.add('on');
 }
@@ -947,7 +964,7 @@ function blockedSheet(){
     const r=h('div','row flat');
     r.innerHTML='<div class="av"></div><div class="grow"><div class="name"></div></div><button class="btn">Unblock</button>';
     const a=r.querySelector('.av');a.style.background=c.color;a.textContent=c.name[0];r.querySelector('.name').textContent=c.name;
-    r.querySelector('button').onclick=()=>{c.blocked=false;blockedSheet();renderList();renderSettings();toast('Unblocked '+c.name)};
+    r.querySelector('button').onclick=()=>{c.blocked=false;syncBlock(c,false);blockedSheet();renderList();renderSettings();toast('Unblocked '+c.name)};
     box.appendChild(r);
   });
   $('sheet').classList.add('on');
@@ -969,7 +986,7 @@ function renderSettings(){
   sr.append(sl,pv);
   grp('Chats',[sr,tog('Enter key sends message','enterSend')]);
   grp('Data and storage',[pick('Auto-download media','dl',['Wi-Fi only','Wi-Fi and mobile','Never']),info('Clear cache',cacheMB.toFixed(1)+' MB',()=>{if(!cacheMB){toast('Cache is already empty');return}ask('Clear cache?','Temporary files are removed. Your chats and media stay safe.','Clear cache',()=>{cacheMB=0;renderSettings();toast('Cache cleared')})})]);
-  grp('About',[info('Version','Zyvorli 0.2'),info('Connection check',LIVE?'Run test':'Demo mode',LIVE?connCheck:null)]);
+  grp('About',[info('Version','Zyvorli 0.4'),info('Connection check',LIVE?'Run test':'Demo mode',LIVE?connCheck:null)]);
 }
 applyS();renderNavAv();updateBadges();
 async function connCheck(){
@@ -985,8 +1002,316 @@ async function connCheck(){
     add(!j.disable_signup,'New accounts',j.disable_signup?'Sign-ups are disabled. Turn on allow new users to sign up.':'Allowed');
     add(null,'Phone SMS',ex.phone?'A provider is enabled':'Not enabled (SMS comes later)');
   }catch(e){add(false,'Server reachable','Could not reach Supabase: '+(e.message||'network error'))}
+  if(A.user){
+    try{const tr=await sb.from('messages').select('id',{head:true,count:'exact'});add(!tr.error,'Chat tables',tr.error?'Not found. Run the chat setup SQL in Supabase.':'Ready')}catch(e){add(false,'Chat tables','Could not check')}
+    try{const mc=await sb.rpc('match_contacts',{tails:[]});add(!mc.error,'Phone search and contacts',mc.error?'Not found. Run the latest chat setup SQL in Supabase.':'Ready')}catch(e){add(false,'Phone search and contacts','Could not check')}
+    add(RT.status==='SUBSCRIBED',RT.status==='SUBSCRIBED'?'Instant delivery':'Instant delivery',RT.status==='SUBSCRIBED'?'Connected':'Not connected. Messages still arrive within about 20 seconds.');
+  }
   add(null,'Email template','The app cannot check this. If your email has a link and no code, edit the Magic Link template.');
 }
+/* ===== Zyvorli real chat (Supabase) v0.4 ===== */
+const RT={uid:null,ch:null,status:'',prof:{},alias:{},known:{},onApp:[],invite:[],mTime:0,loading:false,again:false,bound:false,warned:false};
+let FL={},SEEN={},ADDR=[];
+const PALETTE=['#7c4dff','#00b0ff','#ff6d9d','#00c853','#ffb300','#ff7043','#26c6da','#ab47bc'];
+function colorFor(id){let s=0;for(let i=0;i<id.length;i++)s+=id.charCodeAt(i);return PALETTE[s%PALETTE.length]}
+function uuid(){try{return crypto.randomUUID()}catch(e){return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g,function(c){const r=Math.random()*16|0;return(c==='x'?r:(r&3|8)).toString(16)})}}
+function phoneDigits(s){const d=String(s||'').replace(/\D/g,'');return d.length>=7&&d.length<=15?d:''}
+function tail10(s){const d=String(s||'').replace(/\D/g,'');return d.length>=10?d.slice(-10):''}
+function permGet(k){try{return localStorage.getItem('zv_perm_'+k)==='1'}catch(e){return false}}
+function permSet(k){try{localStorage.setItem('zv_perm_'+k,'1')}catch(e){}}
+function askNotif(){try{if('Notification' in window&&Notification.permission==='default')Notification.requestPermission()}catch(e){}}
+function saveFl(){if(RT.uid)LS.set('zv_fl_'+RT.uid,FL)}
+function saveSeen(){if(RT.uid)LS.set('zv_seen_'+RT.uid,SEEN)}
+function setFlag(c,k,v){if(!LIVE||!c.uid)return;const f=FL[c.uid]||(FL[c.uid]={});if(v)f[k]=v;else delete f[k];saveFl()}
+function markCut(c,k){if(!LIVE||!c.uid)return;const last=c.msgs.length?c.msgs[c.msgs.length-1].t.getTime():Date.now();setFlag(c,k,last)}
+function toMsg(r,me){return{id:r.id,in:r.sender===me?0:1,type:'text',text:r.body,t:new Date(r.created_at),st:r.read_at?'read':'sent'}}
+function chatFor(uid){
+  let c=chats.find(x=>x.uid===uid);
+  if(!c){const p=RT.prof[uid]||{};const nm=RT.alias[uid]||p.name||'Zyvorli user';c={id:'u'+uid,uid:uid,name:nm,un:p.username||'',color:colorFor(uid),unread:0,who:[nm],msgs:[]};chats.unshift(c)}
+  return c;
+}
+function bump(c){const i=chats.indexOf(c);if(i>0){chats.splice(i,1);chats.unshift(c)}}
+function el(tag,cls,txt){const e=document.createElement(tag);if(cls)e.className=cls;if(txt!=null)e.textContent=txt;return e}
+function demoBanner(){return el('div','reqb','Demo mode: messages stay on this phone and nothing is sent over the internet. Upload every app file to GitHub to go live.')}
+
+async function ensureProfile(){
+  const u=A.user;if(!LIVE||!u||!P)return false;
+  for(let i=0;i<4;i++){
+    const row={id:u.id,name:P.name,username:P.username,bio:P.bio||''};
+    const ph=phoneDigits(P.phone);if(ph)row.phone=ph;
+    const r=await sb.from('profiles').upsert(row,{onConflict:'id'});
+    if(!r.error)return true;
+    if(r.error.code==='23505'){
+      P.username=(P.username.replace(/_\d+$/,'')+'_'+Math.floor(100+Math.random()*9000)).slice(0,32);LS.set('zv_profile',P);
+      sb.auth.updateUser({data:{display_name:P.name,username:P.username,bio:P.bio}}).catch(function(){});
+      continue;
+    }
+    return false;
+  }
+  return false;
+}
+async function loadChats(){
+  if(!LIVE||!A.user)return;
+  if(RT.loading){RT.again=true;return}
+  RT.loading=true;const me=A.user.id;
+  try{
+    const res=await Promise.all([
+      sb.from('messages').select('id,sender,recipient,body,created_at,read_at').or('sender.eq.'+me+',recipient.eq.'+me).order('created_at',{ascending:false}).limit(1000),
+      sb.from('blocks').select('blocked')
+    ]);
+    const mr=res[0],br=res[1];
+    if(mr.error)throw mr.error;
+    const rows=(mr.data||[]).slice().reverse();
+    const blocked=new Set((br.data||[]).map(x=>x.blocked));
+    const byU={};
+    rows.forEach(r=>{const o=r.sender===me?r.recipient:r.sender;(byU[o]=byU[o]||[]).push(r)});
+    const ids=Object.keys(byU);blocked.forEach(id=>{if(ids.indexOf(id)<0)ids.push(id)});
+    if(ids.length){
+      const pr=await sb.from('profiles').select('id,name,username').in('id',ids);
+      (pr.data||[]).forEach(p=>{RT.prof[p.id]=p});
+    }
+    ids.forEach(uid=>{
+      const f=FL[uid]||{},cut=Math.max(f.clr||0,f.del||0);
+      const msgs=(byU[uid]||[]).filter(r=>new Date(r.created_at).getTime()>cut).map(r=>toMsg(r,me));
+      const c=chatFor(uid);const p=RT.prof[uid];
+      if(p){c.name=RT.alias[uid]||p.name;c.un=p.username;c.who=[c.name]}
+      const pend=(c.msgs||[]).filter(m=>m.st==='sending'&&!msgs.some(x=>x.id===m.id));
+      c.msgs=msgs.concat(pend);c.cleared=!!f.clr;c.archived=!!f.arch;c.acc=!!f.acc;c.blocked=blocked.has(uid);
+      const seen=SEEN[uid]||0;
+      c.unread=(cur===c)?0:msgs.filter(m=>m.in&&m.st!=='read'&&m.t.getTime()>seen).length;
+    });
+    chats.forEach(c=>{if(c.uid&&ids.indexOf(c.uid)<0&&c.blocked)c.blocked=false});
+    chats.sort((a,b)=>{const x=a.msgs.length?a.msgs[a.msgs.length-1].t.getTime():0,y=b.msgs.length?b.msgs[b.msgs.length-1].t.getTime():0;return y-x});
+    RT.warned=false;
+  }catch(e){
+    if(!RT.warned){RT.warned=true;if(e&&(e.code==='PGRST205'||e.code==='42P01'))toast('Chat is not set up on the server yet.')}
+  }
+  RT.loading=false;
+  renderList();if(cur&&cur.uid){renderMsgs();setBlocked()}
+  if(RT.again){RT.again=false;loadChats()}
+}
+function subscribeLive(){
+  if(!LIVE||!A.user)return;const me=A.user.id;
+  if(RT.ch){try{sb.removeChannel(RT.ch)}catch(e){}RT.ch=null}
+  try{
+    RT.ch=sb.channel('zv-'+me+'-'+Date.now())
+      .on('postgres_changes',{event:'INSERT',schema:'public',table:'messages',filter:'recipient=eq.'+me},p=>onIncoming(p.new))
+      .on('postgres_changes',{event:'UPDATE',schema:'public',table:'messages',filter:'sender=eq.'+me},p=>onReceipt(p.new))
+      .subscribe(st=>{RT.status=st;if(st==='SUBSCRIBED')loadChats()});
+  }catch(e){RT.status='ERROR'}
+}
+function seenNow(c){const l=c.msgs.filter(m=>m.in).slice(-1)[0];if(l){SEEN[c.uid]=Math.max(SEEN[c.uid]||0,l.t.getTime());saveSeen()}}
+function markRead(c){
+  if(!LIVE||!A.user||!S.receipts)return;
+  sb.from('messages').update({read_at:new Date().toISOString()}).eq('sender',c.uid).eq('recipient',A.user.id).is('read_at',null).then(function(){},function(){});
+}
+function liveOpened(c){seenNow(c);markRead(c)}
+function bgNotify(c){
+  try{
+    if(document.visibilityState==='visible'||!('Notification' in window)||Notification.permission!=='granted'||!S.notif)return;
+    const m=c.msgs[c.msgs.length-1];if(!m)return;
+    const body=S.preview?m.text:'New message';
+    if(navigator.serviceWorker&&navigator.serviceWorker.ready){
+      navigator.serviceWorker.ready.then(function(r){r.showNotification(c.name,{body:body,icon:'icon-192.png',badge:'favicon.png',tag:'zv-'+c.uid,renotify:true,data:{uid:c.uid}})}).catch(function(){});
+    }else{new Notification(c.name,{body:body})}
+  }catch(e){}
+}
+async function onIncoming(r){
+  if(!A.user||!r)return;const me=A.user.id;
+  let c=chats.find(x=>x.uid===r.sender);
+  if(!c){
+    const pr=await sb.from('profiles').select('id,name,username').eq('id',r.sender).maybeSingle();
+    if(pr.data)RT.prof[r.sender]=pr.data;
+    c=chatFor(r.sender);
+  }
+  if(c.msgs.some(m=>m.id===r.id))return;
+  c.msgs.push(toMsg(r,me));bump(c);
+  if(cur===c&&document.visibilityState==='visible'){c.unread=0;seenNow(c);markRead(c);renderMsgs()}
+  else{c.unread=(c.unread||0)+1;notify(c);bgNotify(c)}
+  renderList();
+}
+function onReceipt(r){
+  if(!r||!r.read_at)return;
+  const c=chats.find(x=>x.uid===r.recipient);if(!c)return;
+  const m=c.msgs.find(x=>x.id===r.id);if(!m||m.st==='read')return;
+  m.st='read';if(cur===c)renderMsgs();
+}
+async function sendLive(text){
+  const c=cur;if(!c||!c.uid||c.blocked)return;
+  const m={id:uuid(),in:0,type:'text',text:text,t:now(),st:'sending'};
+  c.msgs.push(m);bump(c);$('ta').value='';grow();syncBtn();renderMsgs();
+  let r;
+  try{r=await sb.from('messages').insert({id:m.id,recipient:c.uid,body:text}).select('created_at').single()}
+  catch(e){r={error:e}}
+  if(r.error){
+    const i=c.msgs.indexOf(m);if(i>-1)c.msgs.splice(i,1);
+    if(cur===c){renderMsgs();$('ta').value=text;grow();syncBtn()}
+    toast(r.error.code==='42501'?'You can’t message this person.':'Message not sent. Please check your connection and try again.');
+  }else{
+    m.st='sent';if(r.data&&r.data.created_at)m.t=new Date(r.data.created_at);
+    if(cur===c)renderMsgs();
+  }
+  renderList();
+}
+function syncBlock(c,on){
+  if(!LIVE||!c.uid)return;
+  const q=on?sb.from('blocks').upsert({blocked:c.uid},{onConflict:'blocker,blocked',ignoreDuplicates:true}):sb.from('blocks').delete().eq('blocked',c.uid);
+  q.then(function(r){if(r&&r.error)toast('Could not update block. Check your connection.')},function(){toast('Could not update block. Check your connection.')});
+}
+/* a stranger's first message: the receiver chooses to chat or block */
+function needsAccept(c){return !!(c&&c.uid&&!c.blocked&&!c.acc&&!RT.known[c.uid]&&c.msgs.some(m=>m.in)&&!c.msgs.some(m=>!m.in))}
+function reqBanner(box){
+  const c=cur;if(!LIVE||!needsAccept(c))return;
+  const d=el('div','reqb');
+  d.appendChild(el('div',null,c.name+' is not in your contacts. Do you want to chat with this person?'));
+  const row=el('div','rb');
+  const a=el('button','btn','Chat');a.onclick=function(){c.acc=true;setFlag(c,'acc',1);renderMsgs()};
+  const b=el('button','btn off','Block');b.onclick=function(){c.blocked=true;syncBlock(c,true);setBlocked();renderMsgs();renderList();toast('Blocked. They can no longer message you.')};
+  row.append(a,b);d.appendChild(row);box.appendChild(d);
+}
+/* ---- people: rows, search, contacts, invites ---- */
+function personRow(u,onGo,sub){
+  const r=el('div','row flat');r.style.cursor='pointer';
+  r.innerHTML='<div class="av"></div><div class="grow"><div class="name"></div><div class="last"></div></div><button class="btn">Message</button>';
+  const a=r.querySelector('.av');a.style.background=colorFor(u.id||u.n||'x');a.textContent=(u.n||'?')[0].toUpperCase();
+  r.querySelector('.name').textContent=u.n;r.querySelector('.last').textContent=sub!=null?sub:(u.un?'@'+u.un:'');
+  r.onclick=onGo;
+  r.querySelector('button').onclick=function(e){e.stopPropagation();onGo()};
+  return r;
+}
+let srT=null,srSeq=0;
+function doSearchLive(){
+  const raw=$('q').value.trim(),box=$('res');
+  clearTimeout(srT);const seq=++srSeq;
+  if(!raw){box.innerHTML='';box.appendChild(empty('Find people','Search by mobile number, @username, name, or a full Gmail address.'));return}
+  const isNum=/^[+\d\s()-]+$/.test(raw),dg=raw.replace(/\D/g,'');
+  if(isNum&&dg.length<10){box.innerHTML='';box.appendChild(empty('Keep typing…','Enter the full mobile number, with at least 10 digits.'));return}
+  if(!isNum&&raw.replace(/^@/,'').length<3){box.innerHTML='';box.appendChild(empty('Keep typing…','Enter at least 3 letters.'));return}
+  srT=setTimeout(async()=>{
+    let r;try{r=await sb.rpc('find_users',{q:raw})}catch(e){r={error:e}}
+    if(seq!==srSeq)return;
+    box.innerHTML='';
+    if(r.error){box.appendChild(empty('Search is not ready','Chat setup is not finished on the server yet. Please try again later.'));return}
+    const list=r.data||[];
+    if(!list.length){
+      box.appendChild(empty('No Zyvorli account found',isNum?'Nobody has registered with this number yet. Invite them from the Contacts tab.':'Check the spelling, or ask your friend to register first.'));
+      return;
+    }
+    list.forEach(u=>{const x={id:u.id,n:u.name,un:u.username};box.appendChild(personRow(x,()=>{closeSearch();startChat(x)}))});
+  },300);
+}
+function pickerOK(){return !!(navigator.contacts&&navigator.contacts.select)}
+async function pickContacts(){
+  if(!pickerOK()){toast('This browser cannot open your contacts. Search by mobile number instead.');return false}
+  let sel;
+  try{sel=await navigator.contacts.select(['name','tel'],{multiple:true})}catch(e){return false}
+  const byKey={};ADDR.forEach(x=>{byKey[x.p[0]]=x});
+  (sel||[]).forEach(c=>{
+    const tails=[];(c.tel||[]).forEach(t=>{const k=tail10(t);if(k&&tails.indexOf(k)<0)tails.push(k)});
+    if(!tails.length)return;
+    const nm=((c.name&&c.name[0])||'').trim()||'Unknown';
+    byKey[tails[0]]={n:nm,p:tails,t:String((c.tel||[])[0]||'')};
+  });
+  ADDR=Object.keys(byKey).map(k=>byKey[k]).sort((a,b)=>a.n.localeCompare(b.n));
+  LS.set('zv_addr_'+RT.uid,ADDR);
+  return true;
+}
+async function refreshMatches(force){
+  if(!LIVE||!A.user)return;
+  const tails=[];ADDR.forEach(x=>x.p.forEach(k=>{if(tails.indexOf(k)<0)tails.push(k)}));
+  if(!tails.length){RT.onApp=[];RT.invite=[];return}
+  if(!force&&Date.now()-RT.mTime<30000)return;
+  RT.mTime=Date.now();
+  let r;try{r=await sb.rpc('match_contacts',{tails:tails.slice(0,1000)})}catch(e){return}
+  if(!r||r.error)return;
+  const m={};(r.data||[]).forEach(x=>{m[x.tail]=x});
+  const seen={},on=[],inv=[],mine=tail10(P&&P.phone);
+  ADDR.forEach(x=>{
+    if(mine&&x.p.indexOf(mine)>-1)return;
+    const hit=x.p.map(k=>m[k]).find(Boolean);
+    if(hit){
+      if(!seen[hit.id]){seen[hit.id]=1;on.push({uid:hit.id,n:x.n,name:hit.name,un:hit.username});RT.known[hit.id]=1;RT.alias[hit.id]=x.n;RT.prof[hit.id]=RT.prof[hit.id]||{id:hit.id,name:hit.name,username:hit.username}}
+    }else inv.push({n:x.n,phone:x.p[0],t:x.t});
+  });
+  RT.onApp=on;RT.invite=inv;
+  chats.forEach(c=>{if(c.uid&&RT.alias[c.uid]){c.name=RT.alias[c.uid];c.who=[c.name]}});
+}
+function inviteText(){return 'Hi! I am using Zyvorli to chat. Join me: '+location.href.split('#')[0].split('?')[0]}
+function inviteContact(c){
+  const txt=inviteText();
+  if(window.__zvInvite){window.__zvInvite(c,txt);return}
+  const num=String(c.t||c.phone||'').replace(/[^\d+]/g,'');
+  const ios=/iphone|ipad|ipod/i.test(navigator.userAgent);
+  try{location.href='sms:'+num+(ios?'&':'?')+'body='+encodeURIComponent(txt)}catch(e){toast('Could not open your messages app.')}
+}
+function shareInvite(){
+  const txt=inviteText();
+  if(navigator.share){navigator.share({title:'Zyvorli',text:txt}).catch(function(){});return}
+  try{navigator.clipboard.writeText(txt).then(function(){toast('Invite link copied')},function(){toast(txt)})}catch(e){toast(txt)}
+}
+function contactSig(){return RT.onApp.map(x=>x.uid).join(',')+'|'+RT.invite.length}
+function renderContactsLive(){
+  const box=$('contacts');box.innerHTML='';
+  if(!granted){
+    const d=el('div','flat perm');
+    d.innerHTML='<div>'+ic('user','lg')+'</div><div class="name">Find your friends</div><div class="last" style="white-space:normal">Choose your contacts to see which friends already use Zyvorli. Numbers are only used to match people, and are never shown to anyone.</div><button class="btn" id="allow">Allow access</button>';
+    box.appendChild(d);
+    $('allow').onclick=async function(){
+      granted=true;permSet('contacts');updateBadges();
+      if(pickerOK()){const ok=await pickContacts();if(ok){await refreshMatches(true);toast(RT.onApp.length+' of your contacts are on Zyvorli')}}
+      else toast('Your browser cannot read contacts. Search by mobile number instead.');
+      renderContacts();
+    };
+    return;
+  }
+  const bar=el('div');bar.style.cssText='display:flex;gap:8px;justify-content:center;margin:4px 0 8px;flex-wrap:wrap';
+  if(pickerOK()){const b1=el('button','btn',ADDR.length?'Update contacts':'Choose contacts');b1.onclick=async function(){if(await pickContacts()){await refreshMatches(true);renderContacts()}};bar.appendChild(b1)}
+  const b2=el('button','btn off','Find people');b2.onclick=openSearch;bar.appendChild(b2);
+  box.appendChild(bar);
+  const h1=el('div','hint','On Zyvorli');h1.style.textAlign='left';box.appendChild(h1);
+  RT.onApp.forEach(c=>box.appendChild(personRow({id:c.uid,n:c.n,un:c.un},()=>startChat({id:c.uid,n:c.name,un:c.un}))));
+  if(!RT.onApp.length)box.appendChild(empty(ADDR.length?'None of your contacts are on Zyvorli yet':'No contacts added yet',ADDR.length?'Invite them below.':(pickerOK()?'Tap Choose contacts, or use Find people to search by mobile number.':'Use Find people to search by mobile number.')));
+  if(RT.invite.length){
+    const h2=el('div','hint','Invite to Zyvorli');h2.style.textAlign='left';box.appendChild(h2);
+    RT.invite.slice(0,200).forEach(c=>{
+      const r=el('div','row flat');
+      r.innerHTML='<div class="av"></div><div class="grow"><div class="name"></div><div class="last"></div></div><button class="btn off">Invite</button>';
+      const a=r.querySelector('.av');a.style.background=colorFor(c.phone);a.textContent=(c.n||'?')[0].toUpperCase();
+      r.querySelector('.name').textContent=c.n;r.querySelector('.last').textContent=c.t||c.phone;
+      r.querySelector('button').onclick=function(){inviteContact(c)};
+      box.appendChild(r);
+    });
+  }
+  const sh=el('button','btn','Share invite link');sh.style.cssText='display:block;margin:16px auto';sh.onclick=shareInvite;box.appendChild(sh);
+  const before=contactSig();
+  refreshMatches(false).then(function(){if(TAB==='contacts'&&contactSig()!==before)renderContacts()});
+}
+function openSheetLive(){
+  $('sh').textContent='New';const box=$('disc');box.innerHTML='';
+  const c=el('div','row flat');c.style.cursor='pointer';
+  c.innerHTML='<div class="av" style="background:var(--accent)">+</div><div class="grow"><div class="name">New message</div><div class="last">Find a friend by mobile number, @username or Gmail</div></div>';
+  c.onclick=()=>{closeSheet();openSearch()};box.appendChild(c);
+  const hn=el('div','hint','Groups are coming soon');hn.style.textAlign='left';box.appendChild(hn);
+  $('sheet').classList.add('on');
+}
+async function startLive(){
+  if(!LIVE||!A.user||RT.uid===A.user.id)return;
+  RT.uid=A.user.id;
+  FL=LS.get('zv_fl_'+RT.uid,{});SEEN=LS.get('zv_seen_'+RT.uid,{});ADDR=LS.get('zv_addr_'+RT.uid,[]);
+  const ok=await ensureProfile();
+  if(!ok&&!RT.warned){RT.warned=true;toast('Chat is not set up on the server yet.')}
+  await refreshMatches(true);
+  subscribeLive();loadChats();
+  if(!RT.bound){
+    RT.bound=true;
+    let lastV=0;
+    document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible'&&Date.now()-lastV>3000){lastV=Date.now();loadChats()}});
+    window.addEventListener('online',()=>{subscribeLive();loadChats()});
+    setInterval(()=>{if(document.visibilityState==='visible'&&RT.status!=='SUBSCRIBED')loadChats()},20000);
+  }
+}
+/* ===== end real chat ===== */
+
 if(LIVE){
   chats.splice(0);
   sb.auth.getSession().then(res=>{
