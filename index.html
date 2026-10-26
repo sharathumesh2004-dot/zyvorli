@@ -690,11 +690,11 @@ function startAuth(m){
 function genCode(){A.code=String(Math.floor(100000+Math.random()*900000))}
 function maskPhone(p){const a=p.split(' ');return a[0]+' '+a.slice(1).join('').replace(/.(?=.{3})/g,'x')}
 function maskEmail(v){return v[0]+'***'+v.slice(v.indexOf('@'))}
-function sendPhone(){
+async function sendPhone(){
   const d=$('ph').value.replace(/\D/g,'');
-  if(d.length<7||d.length>12){$('phErr').textContent='Enter a valid mobile number.';return}
+  if(d.length<(LIVE?10:7)||d.length>12){$('phErr').textContent='Enter a valid mobile number.';return}
   $('phErr').textContent='';A.phone=$('cc').value+' '+$('ph').value.trim();
-  if(LIVE){setEmailText();go('email');setTimeout(()=>$('em').focus(),380);return}
+  if(LIVE){if(busy)return;busy=true;setBtn('phBtn','Checking...',1);const taken=await phoneInUse(phoneDigits(A.phone));busy=false;setBtn('phBtn','Continue',0);if(taken){$('phErr').textContent='This mobile number is already linked to a Zyvorli account. Log in with that Gmail instead.';return}setEmailText();go('email');setTimeout(()=>$('em').focus(),380);return}
   showOtp('phone');
 }
 function showOtp(kind){
@@ -845,7 +845,7 @@ function updateBadges(){
 }
 function initProfile(){
   const md=(LIVE&&A.user&&A.user.user_metadata)||{};
-  const em=A.email||'you@gmail.com',ph=A.phone||md.phone_number||(LIVE?'Not added':'+91 0000000000');
+  const em=A.email||'you@gmail.com',ph=(LIVE&&md.phone_number)||A.phone||md.phone_number||(LIVE?'Not added':'+91 0000000000');
   if(P&&P.email===em){P.phone=ph}else{
     const base=em.split('@')[0].replace(/[._\d]+/g,' ').trim()||'New user';
     const name=base.replace(/\b\w/g,c=>c.toUpperCase());
@@ -923,7 +923,7 @@ function editSheet(){
     if(!/^[a-zA-Z][a-zA-Z0-9_]{3,31}$/.test(u)){err.textContent='Username needs 4 to 32 letters, numbers or _ and must start with a letter.';return}
     if(!LIVE&&lu!==P.username.toLowerCase()&&(users.some(x=>x.un===lu)||groups.some(g=>g.un===lu))){err.textContent='That username is already taken.';return}
     const pd=LIVE?phoneDigits(iP.value):'';
-    if(LIVE&&A.user){sv.disabled=true;let r;try{r=await sb.from('profiles').upsert({id:A.user.id,name:n,username:u,bio:iB.value.trim(),phone:pd||null},{onConflict:'id'})}catch(e){r={error:e}}sv.disabled=false;if(r.error){err.textContent=r.error.code==='23505'?'That username is already taken.':'Could not save. Check your connection.';return}}
+    if(LIVE&&A.user){sv.disabled=true;let r;try{r=await sb.from('profiles').upsert({id:A.user.id,name:n,username:u,bio:iB.value.trim(),phone:pd||null},{onConflict:'id'})}catch(e){r={error:e}}sv.disabled=false;if(r.error){err.textContent=r.error.code==='23505'?(/phone/i.test(r.error.message||'')?'This mobile number is already linked to another account.':'That username is already taken.'):'Could not save. Check your connection.';return}}
     P.name=n;P.username=u;P.bio=iB.value.trim();if(LIVE){P.phone=pd?iP.value.trim():'Not added';A.phone=pd?P.phone:''}saveP();closeSheet();toast('Profile updated');
   };
   box.appendChild(sv);$('sheet').classList.add('on');
@@ -1041,6 +1041,7 @@ async function ensureProfile(){
     const ph=phoneDigits(P.phone);if(ph)row.phone=ph;
     const r=await sb.from('profiles').upsert(row,{onConflict:'id'});
     if(!r.error)return true;
+    if(r.error.code==='23505'&&/phone/i.test(r.error.message||'')){phoneConflict();return false}
     if(r.error.code==='23505'){
       P.username=(P.username.replace(/_\d+$/,'')+'_'+Math.floor(100+Math.random()*9000)).slice(0,32);LS.set('zv_profile',P);
       sb.auth.updateUser({data:{display_name:P.name,username:P.username,bio:P.bio}}).catch(function(){});
@@ -1050,6 +1051,11 @@ async function ensureProfile(){
   }
   return false;
 }
+function phoneConflict(){
+  toast('This mobile number is already linked to another Zyvorli account. Log in with that Gmail instead.');
+  setTimeout(function(){try{sb.auth.signOut().catch(function(){}).then(function(){try{localStorage.removeItem('zv_profile')}catch(e){}location.reload()})}catch(e){location.reload()}},3500);
+}
+async function phoneInUse(d){try{const r=await sb.rpc('phone_in_use',{p:d});return !r.error&&r.data===true}catch(e){return false}}
 async function loadChats(){
   if(!LIVE||!A.user)return;
   if(RT.loading){RT.again=true;return}
@@ -1138,6 +1144,7 @@ function onReceipt(r){
 }
 async function sendLive(text){
   const c=cur;if(!c||!c.uid||c.blocked)return;
+  if(!phoneDigits(P&&P.phone)){toast('Add your mobile number first: Profile, then Edit Info.');return}
   const m={id:uuid(),in:0,type:'text',text:text,t:now(),st:'sending'};
   c.msgs.push(m);bump(c);$('ta').value='';grow();syncBtn();renderMsgs();
   let r;
@@ -1300,6 +1307,7 @@ async function startLive(){
   FL=LS.get('zv_fl_'+RT.uid,{});SEEN=LS.get('zv_seen_'+RT.uid,{});ADDR=LS.get('zv_addr_'+RT.uid,[]);
   const ok=await ensureProfile();
   if(!ok&&!RT.warned){RT.warned=true;toast('Chat is not set up on the server yet.')}
+  if(ok&&!phoneDigits(P&&P.phone))toast('Add your mobile number in Profile, then Edit Info, to start chatting.');
   await refreshMatches(true);
   subscribeLive();loadChats();
   if(!RT.bound){
