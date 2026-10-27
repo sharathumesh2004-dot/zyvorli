@@ -54,7 +54,10 @@ button{font:inherit;color:inherit;background:none;border:0;cursor:pointer;paddin
 .reqb{margin:8px 4px 10px;padding:12px 14px;border-radius:18px;background:var(--glass);border:1px solid var(--line);text-align:center;font-size:13px;color:var(--text)}
 .reqb .rb{display:flex;gap:8px;justify-content:center;margin-top:10px}
 .att{min-width:150px}
-.attimg{display:block;max-width:100%;width:240px;max-height:300px;object-fit:cover;border-radius:14px;margin:2px 0 4px;cursor:pointer;background:#ffffff1a}
+.attimg{display:block;width:240px;max-width:100%;aspect-ratio:1/1;height:auto;object-fit:cover;border-radius:14px;margin:2px 0 4px;cursor:pointer;background:linear-gradient(110deg,#ffffff12 30%,#ffffff2c 50%,#ffffff12 70%);background-size:200% 100%;animation:zvsh 1.2s linear infinite}
+.attimg.ok{animation:none;background:#ffffff14}
+.attimg.bad{opacity:.5}
+@keyframes zvsh{to{background-position:-200% 0}}
 .attfile{display:flex;flex-direction:column;gap:2px;padding:6px 2px;min-width:170px;cursor:pointer}
 .attfile b{word-break:break-all}
 .attfile span{font-size:12px;opacity:.75}
@@ -484,7 +487,7 @@ function bars(m){return Array.from({length:28},(_,i)=>'<i style="height:'+(6+Mat
 function renderMsgs(){
   const box=$('msgs');box.innerHTML='<div class="hint">Messages show instantly, then confirm as sent, then read</div>';
   if(LIVE)reqBanner(box);
-  cur.msgs.forEach(m=>{
+  (function(){const n=cur.show||80,L=cur.msgs;if(L.length<=n)return L;const b=document.createElement('button');b.className='btn off';b.textContent='Show earlier messages';b.style.cssText='align-self:center;margin:6px 0';b.onclick=()=>{cur.show=n+80;const h0=box.scrollHeight;renderMsgs();box.scrollTop=box.scrollHeight-h0};box.appendChild(b);return L.slice(-n)})().forEach(m=>{
     const d=document.createElement('div');d.className='b '+(m.in?'in':'me');
     let h='';
     if(m.in&&m.from)h+='<div class="sender">'+m.from+'</div>';
@@ -829,7 +832,7 @@ function finishAuth(mode){
   setTimeout(()=>{$('auth').style.display='none'},700);
   toast(mode==='register'?'Account created. Welcome to Zyvorli!':(LIVE?'Welcome back!':'Welcome back! Your chats are restored.'));
 }
-function logout(){ask('Log out?','You can log back in anytime with your number and Gmail. Your chats stay saved in your account.','Log out',()=>{const done=()=>{LS.del('zv_profile');location.reload()};if(LIVE){sb.auth.signOut().catch(function(){}).then(done)}else done()})}
+function logout(){ask('Log out?','You can log back in anytime with your number and Gmail. Your chats stay saved in your account.','Log out',()=>{const done=()=>{LS.del('zv_profile');if(LIVE)zvWipe();location.reload()};if(LIVE){sb.auth.signOut().catch(function(){}).then(done)}else done()})}
 $('ph').addEventListener('keydown',e=>{if(e.key==='Enter')sendPhone()});
 $('em').addEventListener('keydown',e=>{if(e.key==='Enter')sendEmail()});
 const LS={get(k,d){try{const v=localStorage.getItem(k);return v?JSON.parse(v):d}catch(e){return d}},set(k,v){try{localStorage.setItem(k,JSON.stringify(v))}catch(e){}},del(k){try{localStorage.removeItem(k)}catch(e){}}};
@@ -1067,39 +1070,72 @@ function phoneConflict(){
   setTimeout(function(){try{sb.auth.signOut().catch(function(){}).then(function(){try{localStorage.removeItem('zv_profile')}catch(e){}location.reload()})}catch(e){location.reload()}},3500);
 }
 async function phoneInUse(d){try{const r=await sb.rpc('phone_in_use',{p:d});return !r.error&&r.data===true}catch(e){return false}}
+function applyRows(rows,blocked,me){
+  const byU={};
+  rows.forEach(r=>{const o=r.sender===me?r.recipient:r.sender;(byU[o]=byU[o]||[]).push(r)});
+  const ids=Object.keys(byU);blocked.forEach(id=>{if(ids.indexOf(id)<0)ids.push(id)});
+  ids.forEach(uid=>{
+    const f=FL[uid]||{},cut=Math.max(f.clr||0,f.del||0);
+    const msgs=(byU[uid]||[]).filter(r=>new Date(r.created_at).getTime()>cut).map(r=>toMsg(r,me));
+    const c=chatFor(uid);const p=RT.prof[uid];
+    if(p){c.name=RT.alias[uid]||p.name;c.un=p.username;c.who=[c.name]}
+    const pend=(c.msgs||[]).filter(m=>m.st==='sending'&&!msgs.some(x=>x.id===m.id));
+    c.msgs=msgs.concat(pend);c.cleared=!!f.clr;c.archived=!!f.arch;c.acc=!!f.acc;c.blocked=blocked.has(uid);
+    const seen=SEEN[uid]||0;
+    c.unread=(cur===c)?0:msgs.filter(m=>m.in&&m.st!=='read'&&m.t.getTime()>seen).length;
+  });
+  chats.forEach(c=>{if(c.uid&&ids.indexOf(c.uid)<0&&c.blocked)c.blocked=false});
+  chats.sort((a,b)=>{const x=a.msgs.length?a.msgs[a.msgs.length-1].t.getTime():0,y=b.msgs.length?b.msgs[b.msgs.length-1].t.getTime():0;return y-x});
+  return ids;
+}
+/* show the last known chats instantly while the network catches up */
+function hydrateCache(){
+  const me=RT.uid,cc=LS.get('zv_cache_'+me,null);
+  if(!cc||!cc.rows)return;
+  RT.prof=Object.assign({},cc.prof||{},RT.prof);
+  applyRows(cc.rows,new Set(cc.blocked||[]),me);
+  renderList();
+}
+function saveCache(rows,blocked){
+  if(!RT.uid)return;
+  const prof={};rows.slice(-300).forEach(r=>{const o=r.sender===RT.uid?r.recipient:r.sender;if(RT.prof[o])prof[o]=RT.prof[o]});
+  blocked.forEach(id=>{if(RT.prof[id])prof[id]=RT.prof[id]});
+  LS.set('zv_cache_'+RT.uid,{rows:rows.slice(-300),blocked:Array.from(blocked),prof:prof});
+}
+function zvWipe(){try{Object.keys(localStorage).forEach(function(k){if(/^zv_(cache|urls)_/.test(k))localStorage.removeItem(k)})}catch(e){}}
 async function loadChats(){
   if(!LIVE||!A.user)return;
   if(RT.loading){RT.again=true;return}
-  RT.loading=true;const me=A.user.id;
+  RT.loading=true;RT.lastLoad=Date.now();const me=A.user.id;
   try{
     const res=await Promise.all([
-      sb.from('messages').select('id,sender,recipient,body,created_at,read_at,att_path,att_name,att_type,att_size').or('sender.eq.'+me+',recipient.eq.'+me).order('created_at',{ascending:false}).limit(1000),
+      sb.from('messages').select('id,sender,recipient,body,created_at,read_at,att_path,att_name,att_type,att_size').or('sender.eq.'+me+',recipient.eq.'+me).order('created_at',{ascending:false}).limit(500),
       sb.from('blocks').select('blocked')
     ]);
     const mr=res[0],br=res[1];
     if(mr.error)throw mr.error;
     const rows=(mr.data||[]).slice().reverse();
     const blocked=new Set((br.data||[]).map(x=>x.blocked));
-    const byU={};
-    rows.forEach(r=>{const o=r.sender===me?r.recipient:r.sender;(byU[o]=byU[o]||[]).push(r)});
-    const ids=Object.keys(byU);blocked.forEach(id=>{if(ids.indexOf(id)<0)ids.push(id)});
-    if(ids.length){
-      const pr=await sb.from('profiles').select('id,name,username').in('id',ids);
+    const need=[];
+    rows.forEach(r=>{const o=r.sender===me?r.recipient:r.sender;if(!RT.prof[o]&&need.indexOf(o)<0)need.push(o)});
+    blocked.forEach(id=>{if(!RT.prof[id]&&need.indexOf(id)<0)need.push(id)});
+    if(need.length){
+      const pr=await sb.from('profiles').select('id,name,username').in('id',need);
       (pr.data||[]).forEach(p=>{RT.prof[p.id]=p});
     }
-    ids.forEach(uid=>{
-      const f=FL[uid]||{},cut=Math.max(f.clr||0,f.del||0);
-      const msgs=(byU[uid]||[]).filter(r=>new Date(r.created_at).getTime()>cut).map(r=>toMsg(r,me));
-      const c=chatFor(uid);const p=RT.prof[uid];
-      if(p){c.name=RT.alias[uid]||p.name;c.un=p.username;c.who=[c.name]}
-      const pend=(c.msgs||[]).filter(m=>m.st==='sending'&&!msgs.some(x=>x.id===m.id));
-      c.msgs=msgs.concat(pend);c.cleared=!!f.clr;c.archived=!!f.arch;c.acc=!!f.acc;c.blocked=blocked.has(uid);
-      const seen=SEEN[uid]||0;
-      c.unread=(cur===c)?0:msgs.filter(m=>m.in&&m.st!=='read'&&m.t.getTime()>seen).length;
-    });
-    chats.forEach(c=>{if(c.uid&&ids.indexOf(c.uid)<0&&c.blocked)c.blocked=false});
-    chats.sort((a,b)=>{const x=a.msgs.length?a.msgs[a.msgs.length-1].t.getTime():0,y=b.msgs.length?b.msgs[b.msgs.length-1].t.getTime():0;return y-x});
+    const ids=applyRows(rows,blocked,me);
+    saveCache(rows,blocked);
     RT.warned=false;
+    /* refresh names quietly, off the critical path */
+    const known=ids.filter(id=>need.indexOf(id)<0);
+    if(known.length&&!RT.profRefreshed){
+      RT.profRefreshed=true;
+      sb.from('profiles').select('id,name,username').in('id',known).then(function(pr){
+        let ch=false;(pr.data||[]).forEach(p=>{const o=RT.prof[p.id];if(!o||o.name!==p.name||o.username!==p.username){RT.prof[p.id]=p;ch=true}});
+        if(ch){applyRows(rows,blocked,me);renderList();if(cur&&cur.uid)renderMsgs()}
+      },function(){});
+    }
+    prefetchThumbs();
   }catch(e){
     if(!RT.warned){RT.warned=true;if(e&&(e.code==='PGRST205'||e.code==='42P01'))toast('Chat is not set up on the server yet.')}
   }
@@ -1114,7 +1150,7 @@ function subscribeLive(){
     RT.ch=sb.channel('zv-'+me+'-'+Date.now())
       .on('postgres_changes',{event:'INSERT',schema:'public',table:'messages',filter:'recipient=eq.'+me},p=>onIncoming(p.new))
       .on('postgres_changes',{event:'UPDATE',schema:'public',table:'messages',filter:'sender=eq.'+me},p=>onReceipt(p.new))
-      .subscribe(st=>{RT.status=st;if(st==='SUBSCRIBED')loadChats()});
+      .subscribe(st=>{RT.status=st;if(st==='SUBSCRIBED'&&Date.now()-(RT.lastLoad||0)>4000)loadChats()});
   }catch(e){RT.status='ERROR'}
 }
 function seenNow(c){const l=c.msgs.filter(m=>m.in).slice(-1)[0];if(l){SEEN[c.uid]=Math.max(SEEN[c.uid]||0,l.t.getTime());saveSeen()}}
@@ -1157,8 +1193,32 @@ function onReceipt(r){
 const IMG_OK=/^image\/(jpeg|png|gif|webp|avif)$/i;
 function isImg(m){return IMG_OK.test(m.mime||'')}
 function sizeTxt(b){return b>=1048576?(b/1048576).toFixed(1)+' MB':Math.max(1,Math.round(b/1024))+' KB'}
+const THUMB='.t.jpg';
+let UC={},SQ=null,UCT=0;
+function urlGet(p){const x=UC[p];return x&&x.e>Date.now()?x.u:null}
+function saveUC(){
+  clearTimeout(UCT);
+  UCT=setTimeout(function(){if(!RT.uid)return;const now=Date.now(),o={};Object.keys(UC).forEach(function(k){if(UC[k].e>now)o[k]=UC[k]});LS.set('zv_urls_'+RT.uid,o)},800);
+}
+function flushSign(){
+  const q=SQ;SQ=null;if(!q)return;
+  const paths=Array.from(new Set(q.map(function(x){return x[0]})));
+  sb.storage.from('attachments').createSignedUrls(paths,3600).then(function(r){
+    const map={};((r&&r.data)||[]).forEach(function(x){if(x&&x.signedUrl&&x.path)map[x.path]=x.signedUrl});
+    q.forEach(function(x){const u=map[x[0]]||null;if(u)UC[x[0]]={u:u,e:Date.now()+50*60000};x[1](u)});
+    saveUC();
+  },function(){q.forEach(function(x){x[1](null)})});
+}
+/* many photos in a chat are signed together in one request */
 function attSign(path,name,dl){
-  return sb.storage.from('attachments').createSignedUrl(path,3600,dl?{download:name}:undefined).then(function(r){return r&&r.data?r.data.signedUrl:null},function(){return null});
+  if(dl)return sb.storage.from('attachments').createSignedUrl(path,3600,{download:name}).then(function(r){return r&&r.data?r.data.signedUrl:null},function(){return null});
+  const c=urlGet(path);if(c)return Promise.resolve(c);
+  return new Promise(function(res){if(!SQ){SQ=[];setTimeout(flushSign,15)}SQ.push([path,res])});
+}
+function prefetchThumbs(){
+  const list=[];
+  chats.forEach(function(c){c.msgs.slice(-12).forEach(function(m){if(m.type==='att'&&m.path&&isImg(m)&&!m.local)list.push(m.path+THUMB)})});
+  list.slice(-40).forEach(function(p){attSign(p)});
 }
 function lightbox(src){
   const o=el('div');o.style.cssText='position:fixed;inset:0;z-index:99;background:rgba(0,0,0,.92);display:flex;align-items:center;justify-content:center;padding:12px';
@@ -1169,10 +1229,15 @@ function attHtml(m){return '<div class="att"></div>'}
 function attFill(m,d){
   const box=d.querySelector('.att');if(!box)return;
   if(isImg(m)){
-    const i=el('img','attimg');i.alt=m.name||'Photo';
-    const show=function(u){if(u){i.src=u;i.onclick=function(){lightbox(u)}}else{i.replaceWith(el('div','attfile','Photo unavailable'))}};
-    if(m.local)show(m.local);else if(m.url)show(m.url);
-    else attSign(m.path).then(function(u){m.url=u;show(u)});
+    const i=el('img','attimg');i.alt=m.name||'Photo';i.decoding='async';
+    i.onload=function(){i.classList.add('ok')};
+    const full=function(cb){if(m.local)return cb(m.local);attSign(m.path).then(cb)};
+    const fallback=function(){i.dataset.fb=1;full(function(u){if(u)i.src=u;else i.classList.add('ok','bad')})};
+    i.onerror=function(){if(!i.dataset.fb)fallback();else i.classList.add('ok','bad')};
+    i.onclick=function(){full(function(u){if(u)lightbox(u)})};
+    if(m.local)i.src=m.local;
+    else if(RT.nothumb&&RT.nothumb[m.path])fallback();
+    else attSign(m.path+THUMB).then(function(u){if(u)i.src=u;else{(RT.nothumb=RT.nothumb||{})[m.path]=1;fallback()}});
     box.appendChild(i);
   }else{
     const f=el('div','attfile');
@@ -1277,6 +1342,22 @@ function linkify(node,text){
     else node.appendChild(document.createTextNode(part));
   });
 }
+function makeThumb(blob){
+  return new Promise(function(res){
+    if(!/^image\/(jpeg|png|webp)$/i.test(blob.type))return res(null);
+    try{
+      const img=new Image(),u=URL.createObjectURL(blob);
+      img.onload=function(){
+        const k=Math.min(1,480/Math.max(img.width,img.height)),c=document.createElement('canvas');
+        c.width=Math.max(1,Math.round(img.width*k));c.height=Math.max(1,Math.round(img.height*k));
+        c.getContext('2d').drawImage(img,0,0,c.width,c.height);URL.revokeObjectURL(u);
+        c.toBlob(function(b){res(b)},'image/jpeg',0.72);
+      };
+      img.onerror=function(){URL.revokeObjectURL(u);res(null)};
+      img.src=u;
+    }catch(e){res(null)}
+  });
+}
 function shrink(file){
   return new Promise(function(res){
     if(!/^image\/(jpeg|png|webp)$/i.test(file.type)||file.size<250000)return res(file);
@@ -1309,13 +1390,18 @@ async function sendAttach(file){
     if(cur===c)renderMsgs();renderList();toast(msg||'Could not send. Please check your connection and try again.');
   };
   let up;
-  try{up=await sb.storage.from('attachments').upload(path,blob,{contentType:mime,upsert:false})}catch(e){up={error:e}}
+  const thumb=await makeThumb(blob);
+  try{
+    const jobs=[sb.storage.from('attachments').upload(path,blob,{contentType:mime,upsert:false})];
+    if(thumb)jobs.push(sb.storage.from('attachments').upload(path+THUMB,thumb,{contentType:'image/jpeg',upsert:false}).catch(function(){return {}}));
+    up=(await Promise.all(jobs))[0];
+  }catch(e){up={error:e}}
   if(up.error){fail();return}
   let r;
   try{r=await sb.from('messages').insert({id:m.id,recipient:c.uid,body:'',att_path:path,att_name:name,att_type:mime,att_size:blob.size}).select('created_at').single()}
   catch(e){r={error:e}}
   if(r.error){
-    try{sb.storage.from('attachments').remove([path])}catch(e){}
+    try{sb.storage.from('attachments').remove([path,path+THUMB])}catch(e){}
     fail(r.error.code==='42501'?'You can’t message this person.':null);return;
   }
   m.path=path;m.st='sent';if(r.data&&r.data.created_at)m.t=new Date(r.data.created_at);
@@ -1484,11 +1570,14 @@ async function startLive(){
   if(!LIVE||!A.user||RT.uid===A.user.id)return;
   RT.uid=A.user.id;
   FL=LS.get('zv_fl_'+RT.uid,{});SEEN=LS.get('zv_seen_'+RT.uid,{});ADDR=LS.get('zv_addr_'+RT.uid,[]);
-  const ok=await ensureProfile();
-  if(!ok&&!RT.warned){RT.warned=true;toast('Chat is not set up on the server yet.')}
-  if(ok&&!phoneDigits(P&&P.phone))toast('Add your mobile number in Profile, then Edit Info, to start chatting.');
-  await refreshMatches(true);
+  UC=LS.get('zv_urls_'+RT.uid,{});
+  hydrateCache();
   subscribeLive();loadChats();
+  ensureProfile().then(function(ok){
+    if(!ok&&!RT.warned){RT.warned=true;toast('Chat is not set up on the server yet.')}
+    if(ok&&!phoneDigits(P&&P.phone))toast('Add your mobile number in Profile, then Edit Info, to start chatting.');
+  });
+  refreshMatches(true);
   if(!RT.bound){
     RT.bound=true;
     let lastV=0;
@@ -1498,6 +1587,9 @@ async function startLive(){
   }
 }
 /* ===== end real chat ===== */
+
+/* sign-in: verify automatically when the 6th digit is typed */
+(function(){try{const o=$('otpIn');if(LIVE&&o)o.addEventListener('input',function(){if(o.value.trim().length===6&&A.cur==='otp'&&!busy)verifyOtp()})}catch(e){}})();
 
 if(LIVE){
   chats.splice(0);
