@@ -495,7 +495,7 @@ function renderMsgs(){
     h+='<small>'+fmt(m.t)+(m.in?'':' '+(m.st==='sending'?ic('clock','sm'):m.st==='read'?ic('dcheck','sm'):ic('check','sm')))+'</small>';
     d.innerHTML=h;
     if(m.type==='att')attFill(m,d);
-    const tx=d.querySelector('.tx');if(tx)tx.textContent=m.text;
+    const tx=d.querySelector('.tx');if(tx){if(LIVE)linkify(tx,m.text);else tx.textContent=m.text}
     const fn=d.querySelector('.fn');if(fn)fn.textContent=m.name;
     const pb=d.querySelector('[data-p]');if(pb)pb.onclick=()=>play(m,d);
     const pp=d.querySelector('[data-pp]');if(pp)pp.onclick=()=>{m.paused=!m.paused;renderMsgs()};
@@ -1188,15 +1188,94 @@ function attFill(m,d){
     box.appendChild(f);
   }
 }
-function pickAttach(){
-  if(!cur||!cur.uid||cur.blocked)return;
-  if(!phoneDigits(P&&P.phone)){toast('Add your mobile number first: Profile, then Edit Info.');return}
+function pickFile(accept,capture){
   let i=$('fAtt');
   if(!i){
     i=document.createElement('input');i.type='file';i.id='fAtt';i.hidden=true;document.body.appendChild(i);
     i.onchange=function(){const f=i.files&&i.files[0];i.value='';if(f)sendAttach(f)};
   }
+  if(accept)i.setAttribute('accept',accept);else i.removeAttribute('accept');
+  if(capture)i.setAttribute('capture',capture);else i.removeAttribute('capture');
   i.click();
+}
+function attachReady(){
+  if(!cur||!cur.uid||cur.blocked)return false;
+  if(!phoneDigits(P&&P.phone)){toast('Add your mobile number first: Profile, then Edit Info.');return false}
+  return true;
+}
+function attCss(){
+  if($('attcss'))return;
+  const st=document.createElement('style');st.id='attcss';
+  st.textContent='.asx{position:fixed;inset:0;z-index:200;background:rgba(0,0,0,.45);opacity:0;transition:opacity .25s}.asx.on{opacity:1}'+
+  '.ash{position:fixed;left:0;right:0;bottom:0;margin:0 auto;max-width:520px;z-index:201;background:#1c1840f2;backdrop-filter:blur(18px);-webkit-backdrop-filter:blur(18px);border-radius:28px 28px 0 0;padding:8px 14px calc(22px + env(safe-area-inset-bottom,0px));transform:translateY(105%);transition:transform .3s cubic-bezier(.2,.8,.2,1);touch-action:none}.ash.on{transform:none}.ash.drag{transition:none}'+
+  '.ash .gr{width:44px;height:5px;border-radius:3px;background:#ffffff55;margin:2px auto 16px}'+
+  '.ash .ag{display:grid;grid-template-columns:repeat(4,1fr);gap:18px 6px}'+
+  '.ash .ai{display:flex;flex-direction:column;align-items:center;gap:8px;background:none;border:0;color:var(--text);font:inherit;font-size:12.5px;cursor:pointer;padding:0}'+
+  '.ash .ai i{width:58px;height:58px;border-radius:20px;display:flex;align-items:center;justify-content:center;background:#ffffff14;border:1px solid var(--line)}'+
+  '.ash .ai svg{width:26px;height:26px;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}';
+  document.head.appendChild(st);
+}
+function closeAttach(){
+  const o=$('asx'),s=$('ash');if(!s)return;
+  s.classList.remove('on','drag');s.style.transform='';o.classList.remove('on');
+  setTimeout(function(){const a=$('asx'),b=$('ash');if(a)a.remove();if(b)b.remove()},300);
+}
+function pickAttach(){
+  if(!attachReady())return;
+  if($('ash'))return;
+  attCss();
+  const host=document.body;
+  const o=el('div');o.id='asx';o.className='asx';const s=el('div');s.id='ash';s.className='ash';
+  s.appendChild(el('div','gr'));
+  const g=el('div','ag');
+  const svg=function(d,c){return '<i style="color:'+c+'"><svg viewBox="0 0 24 24">'+d+'</svg></i>'};
+  const items=[
+    ['Gallery','<rect x="3" y="4" width="18" height="16" rx="2"/><circle cx="9" cy="10" r="1.8"/><path d="M4 18l5-5 4 4 3-3 4 4"/>','#5aa2ff',function(){pickFile('image/*,video/*')}],
+    ['Camera','<path d="M3 8h4l2-3h6l2 3h4v11H3z"/><circle cx="12" cy="13" r="3.5"/>','#ff6b8e',function(){pickFile('image/*','environment')}],
+    ['Document','<path d="M6 3h8l5 5v13H6zM14 3v5h5M9 13h6M9 17h6"/>','#9a8cff',function(){pickFile('')}],
+    ['Audio','<path d="M4 15v-3a8 8 0 0116 0v3"/><rect x="3" y="14" width="4" height="6" rx="1.5"/><rect x="17" y="14" width="4" height="6" rx="1.5"/>','#ff9a4d',function(){pickFile('audio/*')}],
+    ['Location','<path d="M12 21s-7-6.2-7-11.2A7 7 0 0119 9.8C19 14.8 12 21 12 21z"/><circle cx="12" cy="10" r="2.5"/>','#3ddc97',sendLocation],
+    ['Contact','<circle cx="12" cy="8" r="4"/><path d="M4 21c0-4.4 3.6-7 8-7s8 2.6 8 7"/>','#4fc3f7',sendContactCard]
+  ];
+  items.forEach(function(it){
+    const b=el('button','ai');b.innerHTML=svg(it[1],it[2])+'<span></span>';b.lastChild.textContent=it[0];
+    b.onclick=function(){closeAttach();setTimeout(it[3],120)};g.appendChild(b);
+  });
+  s.appendChild(g);host.appendChild(o);host.appendChild(s);
+  o.onclick=closeAttach;
+  requestAnimationFrame(function(){requestAnimationFrame(function(){o.classList.add('on');s.classList.add('on')})});
+  /* drag down to close */
+  let y0=null,dy=0;
+  s.addEventListener('pointerdown',function(e){y0=e.clientY;dy=0;s.classList.add('drag')});
+  s.addEventListener('pointermove',function(e){if(y0==null)return;dy=Math.max(0,e.clientY-y0);s.style.transform='translateY('+dy+'px)'});
+  const end=function(){if(y0==null)return;y0=null;s.classList.remove('drag');if(dy>70)closeAttach();else s.style.transform=''};
+  s.addEventListener('pointerup',end);s.addEventListener('pointercancel',end);
+}
+function sendLocation(){
+  if(!attachReady())return;
+  if(!navigator.geolocation){toast('Location is not available on this device.');return}
+  toast('Getting your location…');
+  navigator.geolocation.getCurrentPosition(function(p){
+    const la=p.coords.latitude.toFixed(6),lo=p.coords.longitude.toFixed(6);
+    sendLive('📍 My location\nhttps://www.google.com/maps?q='+la+','+lo);
+  },function(){toast('Could not get your location. Allow location access and try again.')},{enableHighAccuracy:true,timeout:15000,maximumAge:60000});
+}
+async function sendContactCard(){
+  if(!attachReady())return;
+  if(!(navigator.contacts&&navigator.contacts.select)){toast('Sharing a contact works on Android Chrome only.');return}
+  try{
+    const r=await navigator.contacts.select(['name','tel'],{multiple:false});
+    if(!r||!r.length)return;
+    const nm=(r[0].name&&r[0].name[0])||'Contact',tel=(r[0].tel&&r[0].tel[0])||'';
+    sendLive('👤 '+nm+(tel?'\n'+tel:''));
+  }catch(e){}
+}
+function linkify(node,text){
+  node.textContent='';
+  String(text).split(/(https?:\/\/[^\s]+)/g).forEach(function(part){
+    if(/^https?:\/\//.test(part)){const a=document.createElement('a');a.href=part;a.target='_blank';a.rel='noopener';a.textContent=part;a.style.cssText='color:inherit;text-decoration:underline;word-break:break-all';node.appendChild(a)}
+    else node.appendChild(document.createTextNode(part));
+  });
 }
 function shrink(file){
   return new Promise(function(res){
