@@ -403,7 +403,7 @@ const groups=[
 let cur=null,recT=null,recS=0,recording=false;
 
 function toast(m){const t=$('toast');t.textContent=m;t.classList.add('on');setTimeout(()=>t.classList.remove('on'),2200)}
-function preview(m){return m.type==='att'?(isImg(m)?'Photo':'File: '+m.name):m.type==='voice'?'Voice message':m.type==='file'?'File: '+m.name:m.text}
+function preview(m){return m.type==='att'?(isVoice(m)?'Voice message':isImg(m)?'Photo':'File: '+m.name):m.type==='voice'?'Voice message':m.type==='file'?'File: '+m.name:m.text}
 let sel=new Set(),viewArch=false,lpFired=false;
 document.addEventListener('pointerup',()=>setTimeout(()=>{lpFired=false},60));
 function pressable(r,c){
@@ -528,7 +528,7 @@ function addMine(m){m.t=now();cur.msgs.push(m);track(m);return m}
 function act(){
   const v=$('ta').value.trim();
   if(v){if(LIVE){sendLive(v);return}addMine({type:'text',text:v});$('ta').value='';grow();reply(cur);syncBtn();return}
-  if(LIVE){toast('Voice messages are coming soon');return}
+  if(LIVE)return;
   if(!recording){
     recording=true;recS=0;$('rec').style.display='flex';$('ta').style.display='none';$('act').innerHTML=ic('send');
     recT=setInterval(()=>{recS++;$('rt').textContent=Math.floor(recS/60)+':'+String(recS%60).padStart(2,'0')},1000);
@@ -1036,7 +1036,7 @@ function setFlag(c,k,v){if(!LIVE||!c.uid)return;const f=FL[c.uid]||(FL[c.uid]={}
 function markCut(c,k){if(!LIVE||!c.uid)return;const last=c.msgs.length?c.msgs[c.msgs.length-1].t.getTime():Date.now();setFlag(c,k,last)}
 function toMsg(r,me){
   const m={id:r.id,in:r.sender===me?0:1,type:'text',text:r.body,t:new Date(r.created_at),st:r.read_at?'read':'sent'};
-  if(r.att_path){m.type='att';m.path=r.att_path;m.name=r.att_name||'File';m.mime=r.att_type||'';m.bytes=r.att_size||0}
+  if(r.att_path){m.type='att';m.path=r.att_path;m.name=r.att_name||'File';m.mime=r.att_type||'';m.bytes=r.att_size||0;m.dur=r.att_dur||0}
   return m;
 }
 function chatFor(uid){
@@ -1109,7 +1109,7 @@ async function loadChats(){
   RT.loading=true;RT.lastLoad=Date.now();const me=A.user.id;
   try{
     const res=await Promise.all([
-      sb.from('messages').select('id,sender,recipient,body,created_at,read_at,att_path,att_name,att_type,att_size').or('sender.eq.'+me+',recipient.eq.'+me).order('created_at',{ascending:false}).limit(500),
+      sb.from('messages').select('id,sender,recipient,body,created_at,read_at,att_path,att_name,att_type,att_size,att_dur').or('sender.eq.'+me+',recipient.eq.'+me).order('created_at',{ascending:false}).limit(500),
       sb.from('blocks').select('blocked')
     ]);
     const mr=res[0],br=res[1];
@@ -1192,6 +1192,8 @@ function onReceipt(r){
 /* ---- photos and files ---- */
 const IMG_OK=/^image\/(jpeg|png|gif|webp|avif)$/i;
 function isImg(m){return IMG_OK.test(m.mime||'')}
+function isVoice(m){return /^audio\//.test(m.mime||'')&&/^voice-/.test(m.name||'')}
+function durTxt(n){n=Math.max(0,Math.round(n||0));return Math.floor(n/60)+':'+String(n%60).padStart(2,'0')}
 function sizeTxt(b){return b>=1048576?(b/1048576).toFixed(1)+' MB':Math.max(1,Math.round(b/1024))+' KB'}
 const THUMB='.t.jpg';
 let UC={},SQ=null,UCT=0;
@@ -1228,6 +1230,7 @@ function lightbox(src){
 function attHtml(m){return '<div class="att"></div>'}
 function attFill(m,d){
   const box=d.querySelector('.att');if(!box)return;
+  if(isVoice(m)){voiceFill(m,box);return}
   if(isImg(m)){
     const i=el('img','attimg');i.alt=m.name||'Photo';i.decoding='async';
     i.onload=function(){i.classList.add('ok')};
@@ -1375,13 +1378,13 @@ function shrink(file){
     }catch(e){res(file)}
   });
 }
-async function sendAttach(file){
+async function sendAttach(file,extra){
   const c=cur;if(!c||!c.uid||c.blocked||!A.user)return;
   if(file.size>10*1048576){toast('That file is too big. The limit is 10 MB.');return}
-  const blob=await shrink(file);
+  const blob=extra&&extra.dur?file:await shrink(file);
   if(blob.size>10*1048576){toast('That file is too big. The limit is 10 MB.');return}
-  const name=(blob.name||file.name||'file').slice(0,120),mime=blob.type||file.type||'application/octet-stream';
-  const m={id:uuid(),in:0,type:'att',path:null,name:name,mime:mime,bytes:blob.size,t:now(),st:'sending'};
+  const name=((extra&&extra.name)||blob.name||file.name||'file').slice(0,120),mime=(extra&&extra.mime)||blob.type||file.type||'application/octet-stream';
+  const m={id:uuid(),in:0,type:'att',path:null,name:name,mime:mime,bytes:blob.size,t:now(),st:'sending',dur:(extra&&extra.dur)||0};
   m.local=URL.createObjectURL(blob);
   c.msgs.push(m);bump(c);if(cur===c)renderMsgs();renderList();
   const path=A.user.id+'/'+m.id+'-'+name.replace(/[^A-Za-z0-9._-]/g,'_').slice(-80);
@@ -1398,7 +1401,7 @@ async function sendAttach(file){
   }catch(e){up={error:e}}
   if(up.error){fail();return}
   let r;
-  try{r=await sb.from('messages').insert({id:m.id,recipient:c.uid,body:'',att_path:path,att_name:name,att_type:mime,att_size:blob.size}).select('created_at').single()}
+  try{r=await sb.from('messages').insert({id:m.id,recipient:c.uid,body:'',att_path:path,att_name:name,att_type:mime,att_size:blob.size,att_dur:(extra&&extra.dur)||null}).select('created_at').single()}
   catch(e){r={error:e}}
   if(r.error){
     try{sb.storage.from('attachments').remove([path,path+THUMB])}catch(e){}
@@ -1590,6 +1593,133 @@ async function startLive(){
 
 /* sign-in: verify automatically when the 6th digit is typed */
 (function(){try{const o=$('otpIn');if(LIVE&&o)o.addEventListener('input',function(){if(o.value.trim().length===6&&A.cur==='otp'&&!busy)verifyOtp()})}catch(e){}})();
+
+/* ---- voice messages: hold the mic, speak, let go to send ---- */
+const VR={on:false,starting:false,down:false,cancel:false};
+const VP={a:null,m:null};
+function voiceFill(m,box){
+  m.seed=m.seed||(String(m.id||'').split('').reduce(function(a,c){return (a*31+c.charCodeAt(0))%997},7)%9)+0.5;
+  const v=el('div','voice');
+  const btn=el('button');btn.innerHTML=ic('play');
+  const wave=el('div','wave');wave.innerHTML=bars(m);
+  const t=el('span',null,durTxt(m.dur));
+  v.appendChild(btn);v.appendChild(wave);v.appendChild(t);box.appendChild(v);
+  m._ui={btn:btn,bars:Array.prototype.slice.call(wave.children),t:t};
+  if(VP.a&&VP.id===m.id){VP.m=m;voiceUi(m)}
+  btn.onclick=function(){voiceToggle(m)};
+  if(!m.local&&m.path)attSign(m.path);
+}
+function voiceUi(m){
+  const u=m._ui;if(!u)return;const a=VP.a,playing=VP.m===m&&a&&!a.paused;
+  u.btn.innerHTML=ic(playing?'pause':'play');
+  const d=(a&&VP.m===m&&isFinite(a.duration)&&a.duration>0)?a.duration:(m.dur||0);
+  const f=(VP.m===m&&a&&d)?a.currentTime/d:0,n=Math.round(f*u.bars.length);
+  u.bars.forEach(function(b,i){b.classList.toggle('p',i<n)});
+  u.t.textContent=(VP.m===m&&a&&a.currentTime>0&&playing)?durTxt(a.currentTime):durTxt(m.dur);
+}
+async function voiceToggle(m){
+  if(VP.a&&VP.id===m.id){VP.m=m;if(VP.a.paused)VP.a.play().catch(function(){});else VP.a.pause();voiceUi(m);return}
+  if(VP.a){try{VP.a.pause()}catch(e){}const old=VP.m;VP.a=null;VP.m=null;if(old)voiceUi(old)}
+  const url=m.local||(m.path&&await attSign(m.path));
+  if(!url){toast('Could not load this voice message. Try again.');return}
+  const a=new Audio();a.preload='auto';a.src=url;VP.a=a;VP.m=m;VP.id=m.id;
+  const ui=function(){voiceUi(VP.m||m)};
+  a.addEventListener('timeupdate',ui);a.addEventListener('pause',ui);a.addEventListener('play',ui);
+  a.addEventListener('ended',function(){a.currentTime=0;VP.a=null;VP.m=null;voiceUi(m)});
+  a.addEventListener('error',function(){VP.a=null;VP.m=null;voiceUi(m);toast('Could not play this voice message.')});
+  a.play().then(ui).catch(function(){VP.a=null;VP.m=null;voiceUi(m);toast('Tap play again to listen.')});
+}
+function micCss(){
+  if($('miccss'))return;
+  const st=document.createElement('style');st.id='miccss';
+  st.textContent='#act.vrecbtn{background:#ff4d6d!important;transform:scale(1.35);box-shadow:0 0 0 8px rgba(255,77,109,.22);transition:transform .15s}'+
+  '#rec .vl{display:flex;align-items:center;gap:2px;height:28px;flex:1;overflow:hidden}#rec .vl i{width:3px;min-height:3px;border-radius:2px;background:#ff4d6d;transition:height .08s}'+
+  '#rec .vh{font-size:12px;opacity:.75;white-space:nowrap}#rec.cn .vh{color:#ff4d6d;opacity:1}#rec #rt{font-variant-numeric:tabular-nums;min-width:34px}';
+  document.head.appendChild(st);
+}
+function recUi(on){
+  const r=$('rec'),ta=$('ta'),b=$('act');if(!r)return;
+  if(on){
+    micCss();
+    r.innerHTML='<span class="dot"></span><span id="rt">0:00</span><div class="vl"></div><span class="vh">‹ Slide to cancel</span>';
+    const vl=r.querySelector('.vl');for(let i=0;i<30;i++)vl.appendChild(document.createElement('i'));
+    r.style.display='flex';r.classList.remove('cn');ta.style.display='none';b.classList.add('vrecbtn');
+  }else{
+    r.style.display='none';r.classList.remove('cn');ta.style.display='';b.classList.remove('vrecbtn');syncBtn();
+  }
+}
+function recTick(){
+  if(!VR.on)return;
+  const an=VR.an,r=$('rec');
+  if(an){
+    const buf=new Uint8Array(an.fftSize);an.getByteTimeDomainData(buf);
+    let sum=0;for(let i=0;i<buf.length;i++){const x=(buf[i]-128)/128;sum+=x*x}
+    const lvl=Math.min(1,Math.sqrt(sum/buf.length)*8);
+    const now=Date.now();
+    if(!VR.lt||now-VR.lt>70){VR.lt=now;VR.lv.push(lvl);if(VR.lv.length>30)VR.lv.shift()}
+  }
+  const bs=r.querySelectorAll('.vl i');
+  for(let i=0;i<bs.length;i++){const v=VR.lv[VR.lv.length-bs.length+i];bs[i].style.height=(3+(v||0)*25)+'px'}
+  const rt=$('rt');if(rt)rt.textContent=durTxt((Date.now()-VR.t0)/1000);
+  VR.raf=requestAnimationFrame(recTick);
+}
+async function voiceStart(){
+  if(VR.on||VR.starting||!attachReady())return;
+  VR.starting=true;VR.down=true;VR.cancel=false;
+  if(!(navigator.mediaDevices&&navigator.mediaDevices.getUserMedia)||typeof MediaRecorder==='undefined'){VR.starting=false;toast('Voice recording is not supported in this browser.');return}
+  let stream;
+  try{stream=await navigator.mediaDevices.getUserMedia({audio:{echoCancellation:true,noiseSuppression:true}})}
+  catch(e){VR.starting=false;toast('Allow microphone access to send voice messages.');return}
+  if(!VR.down){stream.getTracks().forEach(function(t){t.stop()});VR.starting=false;toast('Hold the mic button and speak, then let go to send.');return}
+  let mt='';['audio/webm;codecs=opus','audio/webm','audio/mp4','audio/ogg;codecs=opus'].some(function(x){try{if(MediaRecorder.isTypeSupported(x)){mt=x;return true}}catch(e){}return false});
+  let rec;
+  try{rec=new MediaRecorder(stream,mt?{mimeType:mt,audioBitsPerSecond:32000}:{audioBitsPerSecond:32000})}catch(e){stream.getTracks().forEach(function(t){t.stop()});VR.starting=false;toast('Voice recording is not supported in this browser.');return}
+  VR.chunks=[];rec.ondataavailable=function(e){if(e.data&&e.data.size)VR.chunks.push(e.data)};
+  VR.rec=rec;VR.stream=stream;VR.mt=rec.mimeType||mt||'audio/webm';VR.lv=[];VR.t0=Date.now();
+  try{const AC=window.AudioContext||window.webkitAudioContext;VR.ctx=new AC();const src=VR.ctx.createMediaStreamSource(stream);VR.an=VR.ctx.createAnalyser();VR.an.fftSize=512;src.connect(VR.an)}catch(e){VR.an=null}
+  if(VP.a){try{VP.a.pause()}catch(e){}}
+  rec.start(250);VR.on=true;VR.starting=false;
+  recUi(true);try{navigator.vibrate&&navigator.vibrate(12)}catch(e){}
+  VR.raf=requestAnimationFrame(recTick);
+  clearTimeout(VR.max);VR.max=setTimeout(function(){voiceEnd(true)},5*60000);
+}
+function voiceEnd(send){
+  VR.down=false;if(!VR.on)return;
+  VR.on=false;clearTimeout(VR.max);cancelAnimationFrame(VR.raf);
+  const dur=(Date.now()-VR.t0)/1000,rec=VR.rec,stream=VR.stream,ctx=VR.ctx,mt=VR.mt;
+  recUi(false);
+  const done=function(){
+    try{stream.getTracks().forEach(function(t){t.stop()})}catch(e){}
+    try{ctx&&ctx.close()}catch(e){}
+    if(!send){toast('Voice message cancelled');return}
+    if(dur<0.7){toast('Hold the mic button and speak, then let go to send.');return}
+    const base=String(mt).split(';')[0],ext=/mp4/.test(base)?'m4a':/ogg/.test(base)?'ogg':'webm';
+    const blob=new Blob(VR.chunks,{type:base});
+    sendAttach(blob,{name:'voice-'+Date.now()+'.'+ext,mime:base,dur:Math.max(1,Math.round(dur))});
+  };
+  let fired=false;const once=function(){if(!fired){fired=true;done()}};
+  rec.onstop=once;try{rec.stop()}catch(e){once()}
+  setTimeout(once,1500);
+}
+function micBind(){
+  const b=$('act');if(!b||b._vb)return;b._vb=1;
+  b.style.touchAction='none';b.style.userSelect='none';b.style.webkitUserSelect='none';
+  b.addEventListener('contextmenu',function(e){e.preventDefault()});
+  b.addEventListener('pointerdown',function(e){
+    if(!LIVE||$('ta').value.trim()||!cur||!cur.uid||cur.blocked)return;
+    e.preventDefault();try{b.setPointerCapture(e.pointerId)}catch(_){}
+    VR.x0=e.clientX;voiceStart();
+  });
+  b.addEventListener('pointermove',function(e){
+    if(!VR.on)return;
+    const cn=e.clientX-VR.x0<-90;
+    if(cn!==VR.cancel){VR.cancel=cn;const r=$('rec');r.classList.toggle('cn',cn);const h=r.querySelector('.vh');if(h)h.textContent=cn?'Release to cancel':'‹ Slide to cancel'}
+  });
+  b.addEventListener('pointerup',function(){if(VR.on)voiceEnd(!VR.cancel);else VR.down=false});
+  b.addEventListener('pointercancel',function(){if(VR.on)voiceEnd(false);else VR.down=false});
+  document.addEventListener('visibilitychange',function(){if(document.visibilityState!=='visible'&&VR.on)voiceEnd(false)});
+}
+try{if(LIVE)micBind()}catch(e){}
 
 if(LIVE){
   chats.splice(0);
