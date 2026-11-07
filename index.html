@@ -473,7 +473,7 @@ const groups=[
 let cur=null,recT=null,recS=0,recording=false;
 
 function toast(m){const t=$('toast');t.textContent=m;t.classList.add('on');setTimeout(()=>t.classList.remove('on'),2200)}
-function preview(m){return m.type==='att'?(isVoice(m)?'Voice message':isImg(m)?'Photo':'File: '+m.name):m.type==='voice'?'Voice message':m.type==='file'?'File: '+m.name:m.text}
+function preview(m){if(m.type==='call'&&window.zcCallInfo){const i=zcCallInfo(m);return i.t}return m.type==='att'?(isVoice(m)?'Voice message':isImg(m)?'Photo':'File: '+m.name):m.type==='voice'?'Voice message':m.type==='file'?'File: '+m.name:m.text}
 let sel=new Set(),viewArch=false,lpFired=false;
 document.addEventListener('pointerup',()=>setTimeout(()=>{lpFired=false},60));
 function pressable(r,c){
@@ -523,7 +523,7 @@ function doDelete(){
   $('sheet').classList.add('on');
 }
 function unblockCur(){cur.blocked=false;syncBlock(cur,false);setBlocked();toast('Unblocked')}
-function setBlocked(){const b=cur&&cur.blocked;$('inp').style.display=b?'none':'';$('blk').style.display=b?'flex':'none'}
+function setBlocked(){const b=cur&&cur.blocked;$('inp').style.display=b?'none':'';$('blk').style.display=b?'flex':'none';if(window.zcBtnState)zcBtnState()}
 function navRow(t,s,fn){const r=document.createElement('div');r.className='row flat';r.innerHTML='<div class="grow"><div class="name"></div><div class="last"></div></div>';r.querySelector('.name').innerHTML=t;r.querySelector('.last').textContent=s;r.onclick=fn;return r}
 function chatRow(c){
   const m=c.msgs[c.msgs.length-1],r=document.createElement('div'),on=sel.has(c);
@@ -565,8 +565,9 @@ function renderMsgs(){
     if(m.type==='voice'){m.seed=m.seed||Math.random()*9;h+='<div class="voice"><button data-p>'+ic('play')+'</button><div class="wave">'+bars(m)+'</div><span>'+m.dur+'</span></div>'}
     if(m.type==='file'){h+='<div class="file">'+ic('file')+' <b class="fn"></b><div class="prog"><div style="width:'+m.p+'%"></div></div><span class="typing">'+(m.p>=100?m.size+' · sent':Math.round(m.p)+'% of '+m.size+(m.paused?' · paused':''))+'</span>'+(m.p<100?' <button data-pp>'+(m.paused?ic('play','sm')+' resume':ic('pause','sm')+' pause')+'</button>':'')+'</div>'}
     if(m.type==='att')h+=attHtml(m);
-    h+='<small>'+fmt(m.t)+(m.in?'':' '+(m.st==='sending'?ic('clock','sm'):m.st==='read'?ic('dcheck','sm'):ic('check','sm')))+'</small>';
+    h+='<small>'+fmt(m.t)+(m.in||m.type==='call'?'':' '+(m.st==='sending'?ic('clock','sm'):m.st==='read'?ic('dcheck','sm'):ic('check','sm')))+'</small>';
     d.innerHTML=h;
+    if(m.type==='call'&&window.zcCallBubble)zcCallBubble(m,d);
     if(m.type==='att')attFill(m,d);
     const tx=d.querySelector('.tx');if(tx){if(LIVE)linkify(tx,m.text);else tx.textContent=m.text}
     const fn=d.querySelector('.fn');if(fn)fn.textContent=m.name;
@@ -1086,6 +1087,7 @@ async function connCheck(){
   if(A.user){
     try{const tr=await sb.from('messages').select('id',{head:true,count:'exact'});add(!tr.error,'Chat tables',tr.error?'Not found. Run the chat setup SQL in Supabase.':'Ready')}catch(e){add(false,'Chat tables','Could not check')}
     try{const mc=await sb.rpc('match_contacts',{tails:[]});add(!mc.error,'Phone search and contacts',mc.error?'Not found. Run the latest chat setup SQL in Supabase.':'Ready')}catch(e){add(false,'Phone search and contacts','Could not check')}
+    try{const cr=await sb.from('calls').select('id',{head:true,count:'exact'});add(!cr.error,'Voice and video calls',cr.error?'Not found. Run the latest chat setup SQL in Supabase.':'Ready')}catch(e){add(false,'Voice and video calls','Could not check')}
     add(RT.status==='SUBSCRIBED',RT.status==='SUBSCRIBED'?'Instant delivery':'Instant delivery',RT.status==='SUBSCRIBED'?'Connected':'Not connected. Messages still arrive within about 20 seconds.');
   }
   add(null,'Email template','The app cannot check this. If your email has a link and no code, edit the Magic Link template.');
@@ -1107,6 +1109,7 @@ function setFlag(c,k,v){if(!LIVE||!c.uid)return;const f=FL[c.uid]||(FL[c.uid]={}
 function markCut(c,k){if(!LIVE||!c.uid)return;const last=c.msgs.length?c.msgs[c.msgs.length-1].t.getTime():Date.now();setFlag(c,k,last)}
 function toMsg(r,me){
   const m={id:r.id,in:r.sender===me?0:1,type:'text',text:r.body,t:new Date(r.created_at),st:r.read_at?'read':'sent'};
+  if(r.call_status){m.type='call';m.ck=r.call_kind;m.cs=r.call_status;m.cd=r.call_dur||0}
   if(r.att_path){m.type='att';m.path=r.att_path;m.name=r.att_name||'File';m.mime=r.att_type||'';m.bytes=r.att_size||0;m.dur=r.att_dur||0}
   return m;
 }
@@ -1153,7 +1156,7 @@ function applyRows(rows,blocked,me){
     const pend=(c.msgs||[]).filter(m=>m.st==='sending'&&!msgs.some(x=>x.id===m.id));
     c.msgs=msgs.concat(pend);c.cleared=!!f.clr;c.archived=!!f.arch;c.acc=!!f.acc;c.blocked=blocked.has(uid);
     const seen=SEEN[uid]||0;
-    c.unread=(cur===c)?0:msgs.filter(m=>m.in&&m.st!=='read'&&m.t.getTime()>seen).length;
+    c.unread=(cur===c)?0:msgs.filter(m=>m.in&&m.st!=='read'&&!(m.type==='call'&&(m.cs==='answered'||m.cs==='declined'))&&m.t.getTime()>seen).length;
   });
   chats.forEach(c=>{if(c.uid&&ids.indexOf(c.uid)<0&&c.blocked)c.blocked=false});
   chats.sort((a,b)=>{const x=a.msgs.length?a.msgs[a.msgs.length-1].t.getTime():0,y=b.msgs.length?b.msgs[b.msgs.length-1].t.getTime():0;return y-x});
@@ -1180,7 +1183,7 @@ async function loadChats(){
   RT.loading=true;RT.lastLoad=Date.now();const me=A.user.id;
   try{
     const res=await Promise.all([
-      sb.from('messages').select('id,sender,recipient,body,created_at,read_at,att_path,att_name,att_type,att_size,att_dur').or('sender.eq.'+me+',recipient.eq.'+me).order('created_at',{ascending:false}).limit(500),
+      sb.from('messages').select('id,sender,recipient,body,created_at,read_at,att_path,att_name,att_type,att_size,att_dur,call_kind,call_status,call_dur').or('sender.eq.'+me+',recipient.eq.'+me).order('created_at',{ascending:false}).limit(500),
       sb.from('blocks').select('blocked')
     ]);
     const mr=res[0],br=res[1];
@@ -1251,6 +1254,7 @@ async function onIncoming(r){
   if(c.msgs.some(m=>m.id===r.id))return;
   c.msgs.push(toMsg(r,me));bump(c);
   if(cur===c&&document.visibilityState==='visible'){c.unread=0;seenNow(c);markRead(c);renderMsgs()}
+  else if(r.call_status==='answered'||r.call_status==='declined'){}
   else{c.unread=(c.unread||0)+1;notify(c);bgNotify(c)}
   renderList();
 }
@@ -1855,6 +1859,661 @@ setTimeout(()=>{const e=$('splash');if(e)e.remove()},4900);
   var ios=/iphone|ipad|ipod/i.test(navigator.userAgent)||(navigator.platform==='MacIntel'&&navigator.maxTouchPoints>1);
   if(ios&&!standalone){var t=document.getElementById('instHint');t.style.display='';t.textContent='To install: tap the Share button in Safari, then Add to Home Screen.'}
 })();
+</script>
+<script>
+/* ===== Zyvorli voice + video calls (WebRTC, signalling through Supabase) v0.8 ===== */
+(function(){
+'use strict';
+const G=window.ZV_CONFIG||{};
+const q=id=>document.getElementById(id);
+const RING_MS=45000;               /* how long the caller waits before "no answer" */
+const TERMINAL={declined:1,missed:1,cancelled:1,ended:1,busy:1};
+let C=null,CH=null,ICE_CACHE=null,wl=null,actx=null,toneT=null,vibT=null;
+
+/* ---------- icons ---------- */
+Object.assign(ICONS,{
+zphone:'<path d="M5 4h4l2 5-2.5 1.5a11 11 0 0 0 5 5L15 13l5 2v4a2 2 0 0 1-2 2A16 16 0 0 1 3 6a2 2 0 0 1 2-2z"/>',
+zvideo:'<rect x="3" y="6" width="13" height="12" rx="2.5"/><path d="M16 10.5l5-3v9l-5-3"/>',
+zlink:'<path d="M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1M14 10a4 4 0 0 0-5.7 0l-3 3A4 4 0 0 0 11 18.7l1-1"/>',
+zcaret:'<path d="M7 10l5 5 5-5"/>',
+zmic:'<rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/>',
+zmicoff:'<rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3M4 4l16 16"/>',
+zcamoff:'<rect x="3" y="6" width="13" height="12" rx="2.5"/><path d="M16 10.5l5-3v9l-5-3M3 3l18 18"/>',
+zflip:'<path d="M4 9a8 8 0 0 1 14-3l2 2M20 4v4h-4M20 15a8 8 0 0 1-14 3l-2-2M4 20v-4h4"/>',
+zend:'<path d="M3 14c5-5 13-5 18 0l-2.5 2.5-3-1.5v-3a11 11 0 0 0-7 0v3l-3 1.5z"/>',
+zmiss:'<path d="M5 4h4l2 5-2.5 1.5a11 11 0 0 0 5 5L15 13l5 2v4a2 2 0 0 1-2 2A16 16 0 0 1 3 6a2 2 0 0 1 2-2zM15 3l6 6M21 3l-6 6"/>'
+});
+
+/* ---------- small helpers ---------- */
+function meId(){return A&&A.user&&A.user.id}
+function peerName(uid){
+  const c=chats.find(x=>x.uid===uid);if(c)return c.name;
+  const p=RT.prof[uid];return (RT.alias[uid]||(p&&p.name))||'Zyvorli user';
+}
+function mmss(n){n=Math.max(0,Math.round(n||0));const h=Math.floor(n/3600),m=Math.floor(n%3600/60),s=n%60;return (h?h+':'+String(m).padStart(2,'0'):m)+':'+String(s).padStart(2,'0')}
+function sleep(ms){return new Promise(r=>setTimeout(r,ms))}
+async function iceServers(){
+  if(ICE_CACHE&&ICE_CACHE.e>Date.now())return ICE_CACHE.v;
+  let v=[{urls:['stun:stun.l.google.com:19302','stun:stun1.l.google.com:19302']}];
+  if(Array.isArray(G.ice))v=v.concat(G.ice);
+  if(G.turnApi){            /* e.g. https://YOURAPP.metered.live/api/v1/turn/credentials?apiKey=YOURKEY */
+    try{
+      const ctl=new AbortController();setTimeout(()=>ctl.abort(),2500);
+      const r=await fetch(G.turnApi,{signal:ctl.signal});
+      if(r.ok){const j=await r.json();if(Array.isArray(j))v=v.concat(j)}
+    }catch(e){}
+  }
+  ICE_CACHE={v:v,e:Date.now()+10*60*1000};
+  return v;
+}
+
+/* ---------- sounds, vibration, wake lock ---------- */
+function audioCtx(){
+  try{if(!actx)actx=new (window.AudioContext||window.webkitAudioContext)();if(actx.state==='suspended')actx.resume()}catch(e){}
+  return actx;
+}
+document.addEventListener('pointerdown',function(){audioCtx()},{passive:true});
+function beep(freq,start,dur,vol){
+  const a=audioCtx();if(!a)return;
+  const t=a.currentTime+start,o=a.createOscillator(),g=a.createGain();
+  o.type='sine';o.frequency.value=freq;
+  g.gain.setValueAtTime(0,t);g.gain.linearRampToValueAtTime(vol,t+0.02);g.gain.setValueAtTime(vol,t+dur-0.04);g.gain.linearRampToValueAtTime(0,t+dur);
+  o.connect(g);g.connect(a.destination);o.start(t);o.stop(t+dur+0.02);
+}
+function stopTones(){clearInterval(toneT);toneT=null;clearInterval(vibT);vibT=null;try{navigator.vibrate&&navigator.vibrate(0)}catch(e){}}
+function ringIn(){
+  stopTones();
+  const play=()=>{if(S.sound===0)return;[659,784,659,784,880].forEach((f,i)=>beep(f,i*0.2,0.17,0.22));[659,784,659,784,880].forEach((f,i)=>beep(f,1.2+i*0.2,0.17,0.22))};
+  play();toneT=setInterval(play,3200);
+  if(S.vib!==0&&navigator.vibrate){const v=()=>navigator.vibrate([500,250,500]);v();vibT=setInterval(v,3200)}
+}
+function ringOut(){
+  stopTones();
+  const play=()=>{beep(425,0,1,0.09)};
+  play();toneT=setInterval(play,4000);
+}
+async function keepAwake(on){
+  try{
+    if(on&&navigator.wakeLock&&!wl){wl=await navigator.wakeLock.request('screen');wl.addEventListener('release',()=>{wl=null})}
+    else if(!on&&wl){await wl.release();wl=null}
+  }catch(e){}
+}
+
+/* ---------- screen ---------- */
+function buildUI(){
+  if(q('zcall'))return;
+  const st=document.createElement('style');
+  st.textContent='\
+#zcall{position:fixed;inset:0;z-index:9000;display:none;flex-direction:column;align-items:center;color:#fff;background:radial-gradient(120% 80% at 50% 0%,color-mix(in srgb,var(--accent,#7c4dff) 38%,#0b0e16),#0b0e16 70%);font-family:inherit;overflow:hidden;touch-action:manipulation}\
+#zcall.on{display:flex}\
+#zcRv{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;background:#000;opacity:0;transition:opacity .25s}\
+#zcall.rv #zcRv{opacity:1}\
+#zcall:not(.vid) #zcRv{width:1px;height:1px;opacity:0}\
+.zc-shade{position:absolute;inset:0;background:linear-gradient(#0009,#0000 28%,#0000 62%,#000a);pointer-events:none;opacity:0;transition:opacity .25s}\
+#zcall.rv .zc-shade{opacity:1}\
+#zcLv{position:absolute;right:14px;top:calc(env(safe-area-inset-top,0px) + 14px);width:104px;height:150px;border-radius:16px;object-fit:cover;background:#111;box-shadow:0 6px 24px #0008;transform:scaleX(-1);display:none;z-index:2;border:1.5px solid #fff3}\
+#zcall.vid.lv #zcLv{display:block}\
+#zcall.back #zcLv{transform:none}\
+.zc-top{position:relative;z-index:2;margin-top:calc(env(safe-area-inset-top,0px) + 12vh);display:flex;flex-direction:column;align-items:center;gap:8px;text-align:center;padding:0 20px;transition:margin .25s}\
+#zcall.rv .zc-top{margin-top:calc(env(safe-area-inset-top,0px) + 16px);align-self:flex-start;align-items:flex-start;text-align:left}\
+.zc-av{width:112px;height:112px;border-radius:50%;display:grid;place-items:center;font-size:46px;font-weight:700;color:#fff;box-shadow:0 0 0 0 #fff4;animation:zcp 1.8s infinite}\
+#zcall.live .zc-av{animation:none}\
+#zcall.rv .zc-av{display:none}\
+@keyframes zcp{0%{box-shadow:0 0 0 0 #ffffff55}100%{box-shadow:0 0 0 34px #fff0}}\
+.zc-name{font-size:26px;font-weight:700;letter-spacing:.2px;text-shadow:0 1px 8px #0006;max-width:80vw;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}\
+.zc-st{font-size:15px;opacity:.85;text-shadow:0 1px 6px #0006}\
+.zc-q{font-size:12.5px;padding:4px 10px;border-radius:999px;background:#f59e0b33;color:#fde68a;display:none;margin-top:2px}\
+#zcall.weak .zc-q{display:block}\
+.zc-btns{position:absolute;z-index:3;left:0;right:0;bottom:calc(env(safe-area-inset-bottom,0px) + 34px);display:none;justify-content:center;gap:22px;padding:0 14px;flex-wrap:wrap}\
+#zcall.ringing-in #zcIn{display:flex}\
+#zcall:not(.ringing-in) #zcCtl{display:flex}\
+.zc-b{display:flex;flex-direction:column;align-items:center;gap:7px;font-size:12px;color:#fff;background:none;border:0;padding:0;cursor:pointer;min-width:64px}\
+.zc-b i{width:62px;height:62px;border-radius:50%;display:grid;place-items:center;background:#ffffff26;backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);transition:transform .12s,background .12s}\
+.zc-b:active i{transform:scale(.92)}\
+.zc-b.on i{background:#fff;color:#111}\
+.zc-b.red i{background:#ef4444}.zc-b.grn i{background:#22c55e}\
+.zc-b svg{width:28px;height:28px;fill:none;stroke:currentColor;stroke-width:1.9;stroke-linecap:round;stroke-linejoin:round}\
+#zcCtl .zc-b[hidden]{display:none}\
+#zcMenu{position:fixed;z-index:8000;top:58px;right:46px;min-width:210px;background:var(--sheet,#1b2030);color:var(--text,#fff);border:1px solid var(--line,#fff2);border-radius:16px;box-shadow:0 12px 40px #0009;padding:6px;display:none}\
+#zcMenu.on{display:block}\
+#zcMenu button{display:flex;align-items:center;gap:14px;width:100%;padding:13px 14px;background:none;border:0;border-radius:11px;color:inherit;font-size:15.5px;text-align:left;cursor:pointer}\
+#zcMenu button:active{background:var(--pill,#ffffff14)}\
+#zcMenu svg,#zcBtn svg{width:22px;height:22px;fill:none;stroke:currentColor;stroke-width:1.9;stroke-linecap:round;stroke-linejoin:round}\
+#zcBtn{display:none;align-items:center;gap:0}\
+#zcBtn .zcar svg{width:16px;height:16px;opacity:.7}\
+#zcJoin{position:fixed;inset:0;z-index:9100;display:none;align-items:center;justify-content:center;background:#000a;padding:20px}\
+#zcJoin.on{display:flex}\
+#zcJoin .box{background:var(--sheet,#1b2030);color:var(--text,#fff);border-radius:22px;padding:22px;width:min(340px,100%);display:flex;flex-direction:column;gap:12px;text-align:center}\
+#zcJoin button{padding:13px;border-radius:13px;border:0;font-size:15.5px;font-weight:600;cursor:pointer;background:var(--pill,#ffffff14);color:inherit}\
+#zcJoin button.p{background:var(--accent,#7c4dff);color:var(--acc-t,#fff)}\
+.callb{display:flex;align-items:center;gap:11px;min-width:190px}\
+.callb .ci{width:38px;height:38px;border-radius:50%;display:grid;place-items:center;background:var(--pill,#ffffff1f);flex:none}\
+.callb .ci svg{width:20px;height:20px;fill:none;stroke:currentColor;stroke-width:1.9;stroke-linecap:round;stroke-linejoin:round}\
+.callb.bad .ci{background:#ef44441f;color:#ef4444}\
+.callb b{display:block;font-size:14.5px;font-weight:600}\
+.callb span{font-size:12.5px;opacity:.72}\
+.callb .cb{margin-left:auto;background:none;border:0;color:inherit;opacity:.9;cursor:pointer;padding:6px}\
+.callb .cb svg{width:22px;height:22px;fill:none;stroke:currentColor;stroke-width:1.9;stroke-linecap:round;stroke-linejoin:round}';
+  document.head.appendChild(st);
+
+  const d=document.createElement('div');d.id='zcall';
+  d.innerHTML='<video id="zcRv" autoplay playsinline></video><div class="zc-shade"></div><video id="zcLv" autoplay playsinline muted></video>'+
+  '<div class="zc-top"><div class="zc-av" id="zcAv"></div><div class="zc-name" id="zcName"></div><div class="zc-st" id="zcSt"></div><div class="zc-q" id="zcQ">Weak connection</div></div>'+
+  '<div class="zc-btns" id="zcIn"><button class="zc-b red" id="zcDec"><i>'+ic('zend')+'</i>Decline</button><button class="zc-b grn" id="zcAcc"><i>'+ic('zphone')+'</i>Accept</button></div>'+
+  '<div class="zc-btns" id="zcCtl"><button class="zc-b" id="zcMute"><i>'+ic('zmic')+'</i><span>Mute</span></button><button class="zc-b" id="zcCam" hidden><i>'+ic('zvideo')+'</i><span>Camera</span></button><button class="zc-b" id="zcFlip" hidden><i>'+ic('zflip')+'</i><span>Flip</span></button><button class="zc-b red" id="zcEnd"><i>'+ic('zend')+'</i><span>End</span></button></div>';
+  document.body.appendChild(d);
+  q('zcDec').onclick=()=>declineCall();
+  q('zcAcc').onclick=()=>acceptCall();
+  q('zcEnd').onclick=()=>hangup();
+  q('zcMute').onclick=toggleMute;
+  q('zcCam').onclick=toggleCam;
+  q('zcFlip').onclick=flipCam;
+
+  const m=document.createElement('div');m.id='zcMenu';
+  m.innerHTML='<button data-k="voice">'+ic('zphone')+'Voice call</button><button data-k="video">'+ic('zvideo')+'Video call</button><button data-k="link">'+ic('zlink')+'Send call link</button>';
+  document.body.appendChild(m);
+  m.onclick=e=>{const b=e.target.closest('button');if(!b)return;m.classList.remove('on');const k=b.dataset.k;if(k==='link')sendCallLink();else startCall(k)};
+  document.addEventListener('pointerdown',e=>{if(m.classList.contains('on')&&!m.contains(e.target)&&!e.target.closest('#zcBtn'))m.classList.remove('on')});
+
+  const j=document.createElement('div');j.id='zcJoin';
+  j.innerHTML='<div class="box"><div style="font-size:19px;font-weight:700" id="zjT"></div><div style="opacity:.75;font-size:14px">Choose how you want to call.</div><button class="p" data-k="voice">Voice call</button><button data-k="video">Video call</button><button data-k="x">Not now</button></div>';
+  document.body.appendChild(j);
+  j.onclick=e=>{const b=e.target.closest('button');if(!b){if(e.target===j)j.classList.remove('on');return}j.classList.remove('on');if(b.dataset.k!=='x'&&j._u)callPeer(j._u,b.dataset.k)};
+
+  /* the phone button in the chat header */
+  const bar=document.querySelector('#chat .bar'),dots=bar&&bar.querySelector('[data-ic="dots"]');
+  if(dots){
+    const b=document.createElement('button');b.id='zcBtn';b.title='Call';b.setAttribute('aria-label','Call');
+    b.innerHTML='<span class="zci">'+ic('zphone')+'</span><span class="zcar">'+ic('zcaret')+'</span>';
+    b.onclick=e=>{e.stopPropagation();m.classList.toggle('on')};
+    dots.parentNode.parentNode.insertBefore(b,dots.parentNode);
+  }
+}
+window.zcBtnState=function(){
+  const b=q('zcBtn');if(!b)return;
+  const ok=LIVE&&cur&&cur.uid&&!cur.group&&!cur.blocked;
+  b.style.display=ok?'flex':'none';
+  const m=q('zcMenu');if(m&&!ok)m.classList.remove('on');
+};
+
+/* ---------- UI state ---------- */
+function setStatus(t){const e=q('zcSt');if(e)e.textContent=t}
+function showUI(){
+  buildUI();const d=q('zcall');
+  q('zcName').textContent=C.name;
+  const av=q('zcAv');av.textContent=(C.name||'?')[0];av.style.background=(chats.find(x=>x.uid===C.peer)||{}).color||'#7c4dff';
+  d.classList.add('on');
+  d.classList.toggle('vid',C.kind==='video');
+  d.classList.toggle('ringing-in',C.dir==='in'&&C.state==='ringing');
+  d.classList.remove('rv','lv','live','weak','back');
+  q('zcCam').hidden=C.kind!=='video';
+  q('zcFlip').hidden=C.kind!=='video';
+  q('zcMute').classList.remove('on');q('zcMute').innerHTML='<i>'+ic('zmic')+'</i><span>Mute</span>';
+  q('zcCam').classList.remove('on');q('zcCam').innerHTML='<i>'+ic('zvideo')+'</i><span>Camera</span>';
+}
+function hideUI(){const d=q('zcall');if(d){d.classList.remove('on','rv','lv','live','weak','vid','ringing-in');const r=q('zcRv'),l=q('zcLv');r.srcObject=null;l.srcObject=null}}
+
+/* ---------- media ---------- */
+async function getMedia(kind){
+  const audio={echoCancellation:true,noiseSuppression:true,autoGainControl:true,channelCount:1};
+  const slow=navigator.connection&&(navigator.connection.saveData||/(^|-)2g|3g/.test(navigator.connection.effectiveType||''));
+  const video=kind==='video'?{width:{ideal:slow?480:960},height:{ideal:slow?360:540},frameRate:{ideal:slow?15:30,max:30},facingMode:'user'}:false;
+  try{return await navigator.mediaDevices.getUserMedia({audio:audio,video:video})}
+  catch(e){
+    if(e&&e.name==='OverconstrainedError'){return await navigator.mediaDevices.getUserMedia({audio:true,video:kind==='video'})}
+    throw e;
+  }
+}
+function mediaErr(e){
+  const n=e&&e.name;
+  if(n==='NotAllowedError'||n==='SecurityError')return 'Allow the microphone (and camera) for Zyvorli in your browser settings, then try again.';
+  if(n==='NotFoundError'||n==='DevicesNotFoundError')return 'No microphone or camera was found on this phone.';
+  if(n==='NotReadableError')return 'Another app is using the microphone or camera.';
+  return 'Could not start the call.';
+}
+function tuneSdp(sdp){
+  try{
+    const lines=sdp.split('\r\n');
+    const pts=[];lines.forEach(l=>{const m=l.match(/^a=rtpmap:(\d+) opus\/48000\/2/i);if(m)pts.push(m[1])});
+    pts.forEach(pt=>{
+      const want='minptime=20;useinbandfec=1;usedtx=1;stereo=0;sprop-stereo=0;maxaveragebitrate=32000;maxplaybackrate=32000';
+      const i=lines.findIndex(l=>l.indexOf('a=fmtp:'+pt+' ')===0);
+      if(i>-1){
+        const have=lines[i].slice(('a=fmtp:'+pt+' ').length).split(';').filter(x=>x&&!/^(minptime|useinbandfec|usedtx|stereo|sprop-stereo|maxaveragebitrate|maxplaybackrate)=/.test(x));
+        lines[i]='a=fmtp:'+pt+' '+have.concat(want.split(';')).join(';');
+      }else{
+        const r=lines.findIndex(l=>l.indexOf('a=rtpmap:'+pt+' ')===0);
+        lines.splice(r+1,0,'a=fmtp:'+pt+' '+want);
+      }
+    });
+    return lines.join('\r\n');
+  }catch(e){return sdp}
+}
+
+/* ---------- signalling ---------- */
+async function sig(payload){
+  if(!C||!C.id)return;
+  for(let i=0;i<3;i++){
+    try{
+      const r=await sb.from('call_signals').insert({call_id:C.id,recipient:C.peer,payload:payload});
+      if(!r.error)return true;
+    }catch(e){}
+    await sleep(400*(i+1));
+  }
+  return false;
+}
+function queueIce(c){
+  if(!C)return;
+  C.iceOut.push(c);
+  if(!C.iceT)C.iceT=setTimeout(()=>{const k=C;if(!k)return;k.iceT=null;const arr=k.iceOut.splice(0);if(arr.length)sig({t:'ice',c:arr})},140);
+}
+function onSignal(row){
+  if(!row||!C||row.call_id!==C.id)return;
+  if(C.seen.has(row.id))return;C.seen.add(row.id);
+  const p=row.payload||{};
+  if(p.t==='ring'){if(C.dir==='out'&&C.state==='calling'){C.state='ringing';setStatus('Ringing…')}return}
+  if(p.t==='st'){peerState(p);return}
+  if(!C.pc){C.buf.push(row);return}           /* callee has not accepted yet */
+  C.chain=C.chain.then(()=>handleSig(p)).catch(()=>{});
+}
+function peerState(p){
+  const d=q('zcall');if(!d)return;
+  if('cam' in p){C.peerCam=!!p.cam;d.classList.toggle('rv',!!C.peerCam&&C.gotVideo)}
+}
+async function handleSig(p){
+  const pc=C&&C.pc;if(!pc)return;
+  if(p.t==='offer'){
+    await pc.setRemoteDescription({type:'offer',sdp:p.sdp});
+    await drainIce();
+    const a=await pc.createAnswer();a.sdp=tuneSdp(a.sdp);
+    await pc.setLocalDescription(a);
+    await sig({t:'answer',sdp:pc.localDescription.sdp});
+  }else if(p.t==='answer'){
+    if(pc.signalingState==='have-local-offer'){await pc.setRemoteDescription({type:'answer',sdp:p.sdp});await drainIce()}
+  }else if(p.t==='ice'){
+    for(const c of (p.c||[])){
+      if(pc.remoteDescription&&pc.remoteDescription.type){try{await pc.addIceCandidate(c)}catch(e){}}
+      else C.iceIn.push(c);
+    }
+  }
+}
+async function drainIce(){
+  const pc=C&&C.pc;if(!pc)return;
+  const a=C.iceIn.splice(0);
+  for(const c of a){try{await pc.addIceCandidate(c)}catch(e){}}
+}
+
+/* ---------- peer connection ---------- */
+async function makePC(){
+  const cfg={iceServers:await iceServers(),bundlePolicy:'max-bundle',rtcpMuxPolicy:'require',iceCandidatePoolSize:2};
+  const pc=new RTCPeerConnection(cfg);
+  C.pc=pc;C.remote=new MediaStream();
+  C.local.getTracks().forEach(t=>{
+    const s=pc.addTrack(t,C.local);
+    if(t.kind==='audio'){C.aSender=s}else{C.vSender=s;try{t.contentHint='motion'}catch(e){}}
+  });
+  pc.onicecandidate=e=>{if(e.candidate)queueIce(e.candidate.toJSON())};
+  pc.ontrack=e=>{
+    if(e.track.kind==='video'){
+      C.gotVideo=true;
+      const sync=()=>{q('zcall')&&q('zcall').classList.toggle('rv',C&&C.peerCam!==false&&!e.track.muted)};
+      e.track.onmute=sync;e.track.onunmute=sync;
+    }
+    C.remote.addTrack(e.track);
+    const v=q('zcRv');v.srcObject=C.remote;const pl=v.play();if(pl&&pl.catch)pl.catch(()=>{});
+  };
+  pc.onconnectionstatechange=()=>onConn(pc);
+  pc.oniceconnectionstatechange=()=>onConn(pc);
+  return pc;
+}
+function onConn(pc){
+  if(!C||C.pc!==pc)return;
+  const s=pc.connectionState==='new'?pc.iceConnectionState:pc.connectionState;
+  const ice=pc.iceConnectionState;
+  if(s==='connected'||ice==='connected'||ice==='completed'){
+    clearTimeout(C.dropT);C.dropT=null;
+    if(!C.t0){connected()}
+    else{setStatus(mmss((Date.now()-C.t0)/1000));q('zcall').classList.remove('weak')}
+    return;
+  }
+  if(s==='disconnected'||ice==='disconnected'||s==='failed'||ice==='failed'){
+    if(C.state!=='active'&&!C.t0){ /* never connected: give it time, then restart ICE (caller only) */
+      if(!C.dropT)C.dropT=setTimeout(()=>{if(C&&!C.t0)endWith('Could not connect. Check your internet.','ended',true)},30000);
+    }else if(!C.dropT){
+      setStatus('Reconnecting…');q('zcall').classList.add('weak');
+      C.dropT=setTimeout(()=>{if(C&&C.pc===pc)endWith('Connection lost.','ended',true)},35000);
+    }
+    if(C.dir==='out')setTimeout(()=>restartIce(pc),s==='failed'?0:2500);
+  }
+}
+async function restartIce(pc){
+  if(!C||C.pc!==pc||C.dir!=='out')return;
+  const st=pc.iceConnectionState;
+  if(st==='connected'||st==='completed'||pc.signalingState!=='stable')return;
+  try{
+    const o=await pc.createOffer({iceRestart:true});o.sdp=tuneSdp(o.sdp);
+    await pc.setLocalDescription(o);await sig({t:'offer',sdp:pc.localDescription.sdp});
+  }catch(e){}
+  setTimeout(()=>{if(C&&C.pc===pc&&C.dir==='out'&&!/^(connected|completed)$/.test(pc.iceConnectionState))restartIce(pc)},6000);
+}
+function connected(){
+  C.state='active';C.t0=Date.now();stopTones();
+  clearTimeout(C.ringT);
+  const d=q('zcall');d.classList.add('live');d.classList.remove('ringing-in');
+  if(C.kind==='video'){q('zcLv').srcObject=C.local;d.classList.add('lv')}
+  keepAwake(true);
+  tuneSenders();
+  C.tick=setInterval(()=>{if(C&&C.t0&&!C.dropT)setStatus(mmss((Date.now()-C.t0)/1000))},1000);
+  setStatus('0:00');
+  C.adaptT=setInterval(adapt,2500);
+  try{navigator.vibrate&&navigator.vibrate(0)}catch(e){}
+}
+
+/* ---------- quality for slow internet ---------- */
+const TIERS=[
+  {br:1100000,scale:1,fps:30},
+  {br:550000,scale:1.5,fps:24},
+  {br:250000,scale:2.25,fps:15},
+  {br:0}                              /* audio only */
+];
+async function tuneSenders(){
+  try{
+    if(C.aSender){const p=C.aSender.getParameters();if(!p.encodings||!p.encodings.length)p.encodings=[{}];p.encodings[0].maxBitrate=32000;p.encodings[0].priority='high';p.encodings[0].networkPriority='high';await C.aSender.setParameters(p)}
+  }catch(e){}
+  if(C.vSender){
+    const slow=navigator.connection&&(navigator.connection.saveData||/(^|-)2g|3g/.test(navigator.connection.effectiveType||''));
+    C.tier=slow?2:0;C.good=0;await applyTier();
+  }
+}
+async function applyTier(){
+  if(!C||!C.vSender)return;
+  const T=TIERS[C.tier];
+  try{
+    const p=C.vSender.getParameters();if(!p.encodings||!p.encodings.length)p.encodings=[{}];
+    const e=p.encodings[0];
+    if(T.br){e.active=true;e.maxBitrate=T.br;e.scaleResolutionDownBy=T.scale;e.maxFramerate=T.fps}
+    else e.active=false;
+    await C.vSender.setParameters(p);
+  }catch(err){}
+  const d=q('zcall');if(d){d.classList.toggle('weak',C.tier>=2);q('zcQ').textContent=C.tier>=3?'Weak internet: video paused, voice stays clear':'Weak connection: lowering video quality'}
+  sig({t:'st',cam:!!(C.camOn!==false&&TIERS[C.tier].br)});
+}
+async function adapt(){
+  if(!C||!C.pc||C.dropT)return;
+  let loss=0,rtt=0,avail=0;
+  try{
+    const rep=await C.pc.getStats();
+    rep.forEach(r=>{
+      if(r.type==='remote-inbound-rtp'){if(typeof r.fractionLost==='number')loss=Math.max(loss,r.fractionLost);if(typeof r.roundTripTime==='number')rtt=Math.max(rtt,r.roundTripTime)}
+      if(r.type==='candidate-pair'&&(r.nominated||r.state==='succeeded')&&r.currentRoundTripTime){rtt=Math.max(rtt,r.currentRoundTripTime);if(r.availableOutgoingBitrate)avail=r.availableOutgoingBitrate}
+    });
+  }catch(e){return}
+  C.stat={loss:loss,rtt:rtt,avail:avail};
+  if(!C.vSender){q('zcall').classList.toggle('weak',loss>0.12||rtt>0.8);return}
+  const bad=loss>0.08||rtt>0.7||(avail&&avail<TIERS[C.tier].br*0.7&&C.tier<3&&avail<400000);
+  const good=loss<0.02&&rtt<0.35&&(!avail||avail>(TIERS[Math.max(0,C.tier-1)].br||300000)*1.2);
+  if(bad&&C.tier<3){C.bad=(C.bad||0)+1;C.good=0;if(C.bad>=2){C.bad=0;C.tier++;await applyTier()}}
+  else if(good&&C.tier>0){C.good=(C.good||0)+1;C.bad=0;if(C.good>=(C.tier===3?4:3)){C.good=0;C.tier--;await applyTier()}}
+  else{C.bad=0;if(!good)C.good=0}
+}
+
+/* ---------- controls ---------- */
+function toggleMute(){
+  if(!C||!C.local)return;
+  const t=C.local.getAudioTracks()[0];if(!t)return;
+  t.enabled=!t.enabled;
+  const b=q('zcMute');b.classList.toggle('on',!t.enabled);
+  b.innerHTML='<i>'+ic(t.enabled?'zmic':'zmicoff')+'</i><span>'+(t.enabled?'Mute':'Unmute')+'</span>';
+}
+function toggleCam(){
+  if(!C||!C.local)return;
+  const t=C.local.getVideoTracks()[0];if(!t)return;
+  t.enabled=!t.enabled;C.camOn=t.enabled;
+  const b=q('zcCam');b.classList.toggle('on',!t.enabled);
+  b.innerHTML='<i>'+ic(t.enabled?'zvideo':'zcamoff')+'</i><span>'+(t.enabled?'Camera':'Camera off')+'</span>';
+  q('zcLv').style.opacity=t.enabled?1:0.25;
+  sig({t:'st',cam:t.enabled&&!!TIERS[C.tier||0].br});
+}
+async function flipCam(){
+  if(!C||!C.vSender)return;
+  const old=C.local.getVideoTracks()[0];if(!old)return;
+  const cur=(old.getSettings&&old.getSettings().facingMode)||'user';
+  const want=cur==='environment'?'user':'environment';
+  try{
+    const s=await navigator.mediaDevices.getUserMedia({video:{facingMode:{ideal:want},width:{ideal:960},height:{ideal:540},frameRate:{ideal:30,max:30}}});
+    const nt=s.getVideoTracks()[0];nt.enabled=old.enabled;try{nt.contentHint='motion'}catch(e){}
+    await C.vSender.replaceTrack(nt);
+    C.local.removeTrack(old);old.stop();C.local.addTrack(nt);
+    q('zcLv').srcObject=C.local;
+    q('zcall').classList.toggle('back',want==='environment');
+  }catch(e){toast('Could not switch camera')}
+}
+
+/* ---------- starting a call ---------- */
+function callPeer(uid,kind){
+  let c=chats.find(x=>x.uid===uid);
+  if(!c){c=chatFor(uid)}
+  startCall(kind,c);
+}
+async function startCall(kind,chat){
+  const c=chat||cur;
+  if(!LIVE||!c||!c.uid){return}
+  if(C){toast('You are already in a call');return}
+  if(c.blocked){toast('Unblock this contact to call');return}
+  if(!window.RTCPeerConnection||!navigator.mediaDevices||!navigator.mediaDevices.getUserMedia){toast('Calls need a newer browser. Try Chrome or Safari.');return}
+  if(!navigator.onLine){toast('You are offline. Connect to the internet to call.');return}
+  C={dir:'out',peer:c.uid,name:c.name,kind:kind,state:'starting',iceOut:[],iceIn:[],buf:[],seen:new Set(),chain:Promise.resolve(),id:null};
+  audioCtx();showUI();setStatus(kind==='video'?'Starting camera…':'Starting…');
+  const me=C;
+  try{me.local=await getMedia(kind)}
+  catch(e){if(C===me){toast(mediaErr(e));cleanup()}return}
+  if(C!==me){me.local.getTracks().forEach(t=>t.stop());return}
+  setStatus('Calling…');me.state='calling';
+  if(kind==='video'){q('zcLv').srcObject=me.local;q('zcall').classList.add('lv')}
+  let r;
+  try{r=await sb.rpc('start_call',{callee_id:c.uid,call_kind:kind})}catch(e){r={error:e}}
+  if(C!==me)return;
+  if(r.error||!r.data){
+    const m=String((r.error&&r.error.message)||'');
+    toast(/blocked/i.test(m)?'You can’t call this person.':/mobile number/i.test(m)?'Add your mobile number in Profile first.':/start_call|does not exist|schema cache/i.test(m)?'Calls are not set up on the server yet. Run the new SQL file in Supabase.':'Could not start the call. Check your internet.');
+    cleanup();return;
+  }
+  me.id=r.data;
+  ringOut();
+  me.ringT=setTimeout(()=>{if(C===me&&me.state!=='active'&&!me.t0){sb.rpc('set_call',{cid:me.id,new_status:'missed'}).then(()=>{},()=>{});endWith('No answer','missed',false)}},RING_MS);
+  try{
+    const pc=await makePC();
+    const o=await pc.createOffer();o.sdp=tuneSdp(o.sdp);
+    await pc.setLocalDescription(o);
+    await sig({t:'offer',sdp:pc.localDescription.sdp});
+  }catch(e){if(C===me){toast('Could not start the call.');hangup()}}
+}
+
+/* ---------- receiving a call ---------- */
+async function onCallRow(r){
+  if(!r||r.status!=='ringing'||r.callee!==meId())return;
+  if(Date.now()-new Date(r.created_at).getTime()>RING_MS+5000)return;
+  if(C){
+    if(C.id===r.id)return;
+    sb.rpc('set_call',{cid:r.id,new_status:'busy'}).then(()=>{},()=>{});return;
+  }
+  if(!RT.prof[r.caller]&&!chats.some(x=>x.uid===r.caller)){
+    try{const pr=await sb.from('profiles').select('id,name,username').eq('id',r.caller).maybeSingle();if(pr.data)RT.prof[r.caller]=pr.data}catch(e){}
+    if(C)return;
+  }
+  C={dir:'in',id:r.id,peer:r.caller,name:peerName(r.caller),kind:r.kind,state:'ringing',iceOut:[],iceIn:[],buf:[],seen:new Set(),chain:Promise.resolve()};
+  const me=C;
+  audioCtx();showUI();setStatus('Incoming '+(r.kind==='video'?'video':'voice')+' call…');
+  ringIn();bgCallNotify(me);
+  me.ringT=setTimeout(()=>{if(C===me&&me.state==='ringing')cleanup()},RING_MS+8000);
+  sig({t:'ring'});
+  /* pick up anything the caller already sent (the offer) */
+  try{
+    const s=await sb.from('call_signals').select('id,call_id,payload').eq('call_id',r.id).eq('recipient',meId()).order('id');
+    if(C===me&&s.data)s.data.forEach(onSignal);
+  }catch(e){}
+}
+function onCallUpd(r){
+  if(!r||!C||C.id!==r.id)return;
+  if(r.status==='active'&&C.dir==='out'&&!C.t0){setStatus('Connecting…');stopTones();return}
+  if(!TERMINAL[r.status])return;
+  const why=r.status==='declined'?'Call declined':r.status==='busy'?'Busy on another call':r.status==='missed'?(C.dir==='in'?'Missed call':'No answer'):r.status==='cancelled'?(C.dir==='in'?'Missed call':'Call cancelled'):'Call ended'+(C.t0?' · '+mmss((Date.now()-C.t0)/1000):'');
+  endWith(why,r.status,false);
+}
+async function acceptCall(){
+  const me=C;if(!me||me.dir!=='in'||me.state!=='ringing')return;
+  me.state='connecting';stopTones();audioCtx();
+  q('zcall').classList.remove('ringing-in');setStatus('Connecting…');
+  try{me.local=await getMedia(me.kind)}
+  catch(e){toast(mediaErr(e));declineCall();return}
+  if(C!==me){me.local.getTracks().forEach(t=>t.stop());return}
+  if(me.kind==='video'){q('zcLv').srcObject=me.local;q('zcall').classList.add('lv')}
+  closeNote();
+  sb.rpc('set_call',{cid:me.id,new_status:'active'}).then(()=>{},()=>{});
+  try{
+    await makePC();
+    me.buf.sort((a,b)=>a.id-b.id).forEach(row=>{me.chain=me.chain.then(()=>handleSig(row.payload||{})).catch(()=>{})});
+    me.buf=[];
+  }catch(e){toast('Could not connect the call.');hangup()}
+  me.dropT=null;
+  setTimeout(()=>{if(C===me&&!me.t0)setStatus('Connecting…')},0);
+  me.ringT=setTimeout(()=>{if(C===me&&!me.t0)endWith('Could not connect. Check your internet.','ended',true)},40000);
+}
+function declineCall(){
+  if(!C)return;
+  const id=C.id;
+  if(id)sb.rpc('set_call',{cid:id,new_status:'declined'}).then(()=>{},()=>{});
+  endWith('','declined',false,true);
+}
+function hangup(){
+  if(!C)return;
+  const id=C.id,dir=C.dir,ringing=!C.t0&&C.state!=='active';
+  if(id)sb.rpc('set_call',{cid:id,new_status:'ended'}).then(()=>{},()=>{});
+  const dur=C.t0?(Date.now()-C.t0)/1000:0;
+  endWith(dur?'Call ended · '+mmss(dur):(ringing&&dir==='out'?'Call cancelled':'Call ended'),'ended',false);
+}
+function endWith(msg,status,tellServer,quiet){
+  if(!C)return;
+  if(tellServer&&C.id)sb.rpc('set_call',{cid:C.id,new_status:'ended'}).then(()=>{},()=>{});
+  stopTones();
+  const me=C;
+  if(msg&&!quiet){
+    setStatus(msg);q('zcall')&&q('zcall').classList.remove('ringing-in','weak');
+    const dead=C;C=null;shutdown(dead);
+    setTimeout(()=>{if(!C)hideUI()},1100);
+  }else{C=null;shutdown(me);hideUI()}
+  closeNote();
+  setTimeout(()=>{try{loadChats()}catch(e){}},900);
+  setTimeout(()=>{try{loadChats()}catch(e){}},3500);
+}
+function shutdown(k){
+  ['ringT','dropT','tick','adaptT','iceT'].forEach(n=>{clearTimeout(k[n]);clearInterval(k[n])});
+  try{k.pc&&k.pc.close()}catch(e){}
+  try{k.local&&k.local.getTracks().forEach(t=>t.stop())}catch(e){}
+  keepAwake(false);
+}
+function cleanup(){if(!C)return;const k=C;C=null;stopTones();shutdown(k);hideUI();closeNote()}
+
+/* ---------- alerts when the app is in the background ---------- */
+function bgCallNotify(k){
+  try{
+    if(document.visibilityState==='visible'||!('Notification' in window)||Notification.permission!=='granted'||S.notif===0)return;
+    const body='Incoming '+(k.kind==='video'?'video':'voice')+' call';
+    navigator.serviceWorker.ready.then(r=>r.showNotification(k.name,{body:body,icon:'icon-192.png',badge:'favicon.png',tag:'zv-call',renotify:true,requireInteraction:true,vibrate:[400,200,400,200,400],data:{uid:k.peer,call:1}})).catch(()=>{});
+  }catch(e){}
+}
+function closeNote(){
+  try{navigator.serviceWorker&&navigator.serviceWorker.ready.then(r=>r.getNotifications({tag:'zv-call'}).then(l=>l.forEach(n=>n.close()))).catch(()=>{})}catch(e){}
+}
+
+/* ---------- call link ---------- */
+function sendCallLink(){
+  if(!cur||!cur.uid||!meId())return;
+  const base=location.href.split('#')[0].split('?')[0];
+  const link=base+'#call='+meId();
+  sendLive('📞 Call me on Zyvorli: '+link);
+}
+function joinFromLink(){
+  const m=/[#&]call=([0-9a-f-]{36})/i.exec(location.hash||'');
+  if(!m)return;
+  const uid=m[1].toLowerCase();
+  try{history.replaceState(null,'',location.href.split('#')[0])}catch(e){}
+  let n=0;
+  const t=setInterval(()=>{
+    n++;
+    if(n>120){clearInterval(t);return}
+    if(!A.user||!LIVE||!RT.uid||RT.loading)return;
+    clearInterval(t);
+    if(uid===meId())return;
+    buildUI();
+    const j=q('zcJoin');j._u=uid;
+    const known=chats.some(x=>x.uid===uid)||RT.prof[uid];
+    q('zjT').textContent='Call '+(known?peerName(uid):'this person')+'?';
+    j.classList.add('on');
+  },500);
+}
+
+/* ---------- call history rows in the chat ---------- */
+window.zcCallInfo=function(m){
+  const v=m.ck==='video'?'video':'voice',out=!m.in,s=m.cs,dur=m.cd?mmss(m.cd):'';
+  const V=v[0].toUpperCase()+v.slice(1);
+  if(s==='answered')return{t:(out?'Outgoing ':'Incoming ')+v+' call',s:dur||'Answered',bad:0,ic:v==='video'?'zvideo':'zphone'};
+  if(s==='declined')return{t:out?'Call declined':'Declined '+v+' call',s:out?'They declined':'You declined',bad:0,ic:v==='video'?'zvideo':'zphone'};
+  if(s==='busy')return{t:out?'Line busy':'Missed '+v+' call',s:out?'They were on another call':'You were on another call',bad:!out,ic:'zmiss'};
+  if(s==='cancelled')return{t:out?'Cancelled '+v+' call':'Missed '+v+' call',s:out?'No answer':'They hung up before you answered',bad:!out,ic:out?(v==='video'?'zvideo':'zphone'):'zmiss'};
+  /* missed */
+  return{t:out?'No answer':'Missed '+v+' call',s:out?V+' call · not answered':V+' call',bad:!out,ic:out?(v==='video'?'zvideo':'zphone'):'zmiss'};
+};
+window.zcCallBubble=function(m,d){
+  const i=zcCallInfo(m);
+  const w=document.createElement('div');w.className='callb'+(i.bad?' bad':'');
+  w.innerHTML='<div class="ci">'+ic(i.ic)+'</div><div><b></b><span></span></div><button class="cb" title="Call back">'+ic(m.ck==='video'?'zvideo':'zphone')+'</button>';
+  w.querySelector('b').textContent=i.t;w.querySelector('span').textContent=i.s;
+  w.querySelector('.cb').onclick=e=>{e.stopPropagation();startCall(m.ck==='video'?'video':'voice')};
+  d.insertBefore(w,d.firstChild);
+};
+
+/* ---------- hook into the app ---------- */
+function sub(){
+  const id=meId();if(!LIVE||!id)return;
+  if(CH){try{sb.removeChannel(CH)}catch(e){}CH=null}
+  try{
+    CH=sb.channel('zc-'+id+'-'+Date.now())
+      .on('postgres_changes',{event:'INSERT',schema:'public',table:'calls',filter:'callee=eq.'+id},p=>onCallRow(p.new))
+      .on('postgres_changes',{event:'UPDATE',schema:'public',table:'calls',filter:'callee=eq.'+id},p=>onCallUpd(p.new))
+      .on('postgres_changes',{event:'UPDATE',schema:'public',table:'calls',filter:'caller=eq.'+id},p=>onCallUpd(p.new))
+      .on('postgres_changes',{event:'INSERT',schema:'public',table:'call_signals',filter:'recipient=eq.'+id},p=>onSignal(p.new))
+      .subscribe(st=>{if(st==='SUBSCRIBED')checkRinging()});
+  }catch(e){}
+}
+async function checkRinging(){
+  const id=meId();if(!id||C)return;
+  try{
+    const since=new Date(Date.now()-RING_MS).toISOString();
+    const r=await sb.from('calls').select('*').eq('callee',id).eq('status','ringing').gt('created_at',since).order('created_at',{ascending:false}).limit(1);
+    if(r.data&&r.data[0])onCallRow(r.data[0]);
+  }catch(e){}
+}
+let hooked=false;
+function init(){
+  if(hooked)return;hooked=true;
+  buildUI();
+  const old=window.startLive;
+  window.startLive=function(){
+    const r=old.apply(this,arguments);
+    try{sub();joinFromLink()}catch(e){}
+    return r;
+  };
+  window.addEventListener('online',()=>{if(meId())sub()});
+  document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible'&&meId()&&!C)checkRinging()});
+  setInterval(()=>{if(meId()&&!C&&document.visibilityState==='visible'&&CH&&CH.state!=='joined')sub()},30000);
+  if(A.user&&RT.uid){try{sub();joinFromLink()}catch(e){}}   /* already signed in when this loaded */
+  window.zcBtnState();
+}
+window.zvCalls={start:startCall,get active(){return C},init:init,_test:{onCallRow:onCallRow,onCallUpd:onCallUpd,onSignal:onSignal,sub:sub}};
+if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',init);else init();
+})();
+
 </script>
 </body>
 </html>
