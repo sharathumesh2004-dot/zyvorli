@@ -6,5 +6,10 @@ window.ZV_CONFIG = {
   // OPTIONAL (calls on mobile data): a TURN relay helps calls connect on every network.
   // Free option: metered.ca Open Relay. Paste your credentials URL below, for example
   // turnApi: 'https://YOURAPP.metered.live/api/v1/turn/credentials?apiKey=YOURKEY'
-  turnApi: ''
+  turnApi: '',
+  // Legal contact shown on the Privacy Policy and Terms pages (fill these in before launch)
+  grievanceName: '',
+  grievanceEmail: '',
+  businessName: '',
+  businessAddress: ''
 };

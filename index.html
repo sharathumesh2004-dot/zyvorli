@@ -401,14 +401,14 @@ html[data-zvt] #auth,html[data-zvt] #splash{color:var(--text)}
     <div class="input glass" id="blk" style="display:none;justify-content:center"><button onclick="unblockCur()"><span data-ic="block"></span> You blocked this contact · Tap to unblock</button></div>
     <div class="input glass" id="inp">
       <button onclick="sendFile()" title="Send a photo or file"><span data-ic="clip"></span></button>
-      <textarea id="ta" rows="1" maxlength="100000" placeholder="Message"></textarea>
+      <textarea id="ta" rows="1" maxlength="4000" placeholder="Message"></textarea>
       <div class="rec" id="rec"><span class="dot"></span><span id="rt">0:00</span><span class="typing">recording…</span></div>
       <button id="act" onclick="act()"><span data-ic="mic"></span></button>
     </div>
   </section>
 
   <section class="screen" id="search">
-    <div class="bar glass"><button onclick="closeSearch()"><span data-ic="back"></span></button><input id="q" type="search" inputmode="search" autocomplete="off" placeholder="Mobile number, @username or Gmail" oninput="doSearch()"></div>
+    <div class="bar glass"><button onclick="closeSearch()"><span data-ic="back"></span></button><input id="q" type="search" inputmode="search" autocomplete="off" placeholder="Mobile number or @username" oninput="doSearch()"></div>
     <div class="scroll" id="res"></div>
   </section>
 
@@ -473,7 +473,7 @@ const groups=[
 let cur=null,recT=null,recS=0,recording=false;
 
 function toast(m){const t=$('toast');t.textContent=m;t.classList.add('on');setTimeout(()=>t.classList.remove('on'),2200)}
-function preview(m){if(m.type==='call'&&window.zcCallInfo){const i=zcCallInfo(m);return i.t}return m.type==='att'?(isVoice(m)?'Voice message':isImg(m)?'Photo':'File: '+m.name):m.type==='voice'?'Voice message':m.type==='file'?'File: '+m.name:m.text}
+function preview(m){if(m.type==='deleted')return 'This message was deleted';if(m.enc&&!m.dec)return 'Message';if(m.type==='call'&&window.zcCallInfo){const i=zcCallInfo(m);return i.t}return m.type==='att'?(isVoice(m)?'Voice message':isImg(m)?'Photo':'File: '+m.name):m.type==='voice'?'Voice message':m.type==='file'?'File: '+m.name:m.text}
 let sel=new Set(),viewArch=false,lpFired=false;
 document.addEventListener('pointerup',()=>setTimeout(()=>{lpFired=false},60));
 function pressable(r,c){
@@ -551,21 +551,22 @@ function renderList(){
     if(vis.length&&!sel.size){const h=document.createElement('div');h.className='hint';h.textContent='Tip: press and hold a chat to archive, clear, block or delete';box.appendChild(h)}
   }
 }
-function openChat(c){$('list').classList.add('away');cur=c;c.unread=0;if(LIVE&&c.uid)liveOpened(c);$('cname').textContent=c.name;if(c.group)$('cav').innerHTML=ic('users');else $('cav').textContent=c.name[0];$('cav').style.background=c.color;$('cstat').textContent=c.group?c.who.length+1+' members':(LIVE&&c.un?'@'+c.un:'online');setBlocked();renderMsgs();$('chat').classList.add('on')}
+function openChat(c){$('list').classList.add('away');cur=c;c.unread=0;if(LIVE&&c.uid)liveOpened(c);$('cname').textContent=c.name;if(c.group)$('cav').innerHTML=ic('users');else $('cav').textContent=c.name[0];$('cav').style.background=c.color;$('cstat').textContent=c.group?c.who.length+1+' members':(LIVE&&c.un?'@'+c.un:'online');setBlocked();renderMsgs();if(window.zvOpened)zvOpened(c);$('chat').classList.add('on')}
 function back(){$('chat').classList.remove('on');$('list').classList.remove('away');cur=null;renderList()}
 function bars(m){return Array.from({length:28},(_,i)=>'<i style="height:'+(6+Math.abs(Math.sin(i*1.7+m.seed))*18)+'px"></i>').join('')}
 function renderMsgs(){
-  const box=$('msgs');box.innerHTML='<div class="hint">Messages show instantly, then confirm as sent, then read</div>';
+  const box=$('msgs');box.__ld=null;box.innerHTML='<div class="hint">'+(window.zvHintText?zvHintText(cur):'Messages show instantly, then confirm as sent, then read')+'</div>';
   if(LIVE)reqBanner(box);
   (function(){const n=cur.show||80,L=cur.msgs;if(L.length<=n)return L;const b=document.createElement('button');b.className='btn off';b.textContent='Show earlier messages';b.style.cssText='align-self:center;margin:6px 0';b.onclick=()=>{cur.show=n+80;const h0=box.scrollHeight;renderMsgs();box.scrollTop=box.scrollHeight-h0};box.appendChild(b);return L.slice(-n)})().forEach(m=>{
-    const d=document.createElement('div');d.className='b '+(m.in?'in':'me');
+    {const dk=m.t.toDateString();if(box.__ld!==dk){box.__ld=dk;if(window.zvDaySep)box.appendChild(zvDaySep(m.t))}}
+    const d=document.createElement('div');d.className='b '+(m.in?'in':'me')+(m.type==='deleted'?' del':'');
     let h='';
     if(m.in&&m.from)h+='<div class="sender">'+m.from+'</div>';
-    if(m.type==='text'){h+='<span class="tx"></span>'}
+    if(m.type==='text'||m.type==='deleted'){h+='<span class="tx"></span>'}
     if(m.type==='voice'){m.seed=m.seed||Math.random()*9;h+='<div class="voice"><button data-p>'+ic('play')+'</button><div class="wave">'+bars(m)+'</div><span>'+m.dur+'</span></div>'}
     if(m.type==='file'){h+='<div class="file">'+ic('file')+' <b class="fn"></b><div class="prog"><div style="width:'+m.p+'%"></div></div><span class="typing">'+(m.p>=100?m.size+' · sent':Math.round(m.p)+'% of '+m.size+(m.paused?' · paused':''))+'</span>'+(m.p<100?' <button data-pp>'+(m.paused?ic('play','sm')+' resume':ic('pause','sm')+' pause')+'</button>':'')+'</div>'}
     if(m.type==='att')h+=attHtml(m);
-    h+='<small>'+fmt(m.t)+(m.in||m.type==='call'?'':' '+(m.st==='sending'?ic('clock','sm'):m.st==='read'?ic('dcheck','sm'):ic('check','sm')))+'</small>';
+    h+='<small>'+(m.edited&&m.type==='text'?'edited ':'')+fmt(m.t)+(m.in||m.type==='call'?'':' '+(m.st==='sending'?ic('clock','sm'):m.st==='read'?ic('dcheck','sm'):ic('check','sm')))+'</small>';
     d.innerHTML=h;
     if(m.type==='call'&&window.zcCallBubble)zcCallBubble(m,d);
     if(m.type==='att')attFill(m,d);
@@ -574,6 +575,7 @@ function renderMsgs(){
     const pb=d.querySelector('[data-p]');if(pb)pb.onclick=()=>play(m,d);
     const pp=d.querySelector('[data-pp]');if(pp)pp.onclick=()=>{m.paused=!m.paused;renderMsgs()};
     box.appendChild(d);
+    if(window.zvBubble)zvBubble(m,d,cur);
   });
   box.scrollTop=box.scrollHeight;
 }
@@ -903,11 +905,11 @@ function finishAuth(mode){
   setTimeout(()=>{$('auth').style.display='none'},700);
   toast(mode==='register'?'Account created. Welcome to Zyvorli!':(LIVE?'Welcome back!':'Welcome back! Your chats are restored.'));
 }
-function logout(){ask('Log out?','You can log back in anytime with your number and Gmail. Your chats stay saved in your account.','Log out',()=>{const done=()=>{LS.del('zv_profile');if(LIVE)zvWipe();location.reload()};if(LIVE){sb.auth.signOut().catch(function(){}).then(done)}else done()})}
+function logout(){ask('Log out?','You can log back in anytime with your number and Gmail. Your chats stay saved in your account.','Log out',()=>{const done=()=>{LS.del('zv_profile');if(LIVE)zvWipe();location.reload()};if(LIVE){Promise.resolve(window.zvOnLogout&&zvOnLogout()).catch(function(){}).then(function(){return sb.auth.signOut()}).catch(function(){}).then(done)}else done()})}
 $('ph').addEventListener('keydown',e=>{if(e.key==='Enter')sendPhone()});
 $('em').addEventListener('keydown',e=>{if(e.key==='Enter')sendEmail()});
 const LS={get(k,d){try{const v=localStorage.getItem(k);return v?JSON.parse(v):d}catch(e){return d}},set(k,v){try{localStorage.setItem(k,JSON.stringify(v))}catch(e){}},del(k){try{localStorage.removeItem(k)}catch(e){}}};
-const S=Object.assign({notif:1,sound:1,vib:1,preview:1,find:'Everyone',seen:'Everyone',receipts:1,fs:15,enterSend:1,dl:'Wi-Fi and mobile'},LS.get('zv_settings',{}));
+const S=Object.assign({notif:1,sound:1,vib:1,preview:1,find:'My contacts',seen:'My contacts',receipts:1,fs:15,enterSend:1,dl:'Wi-Fi and mobile'},LS.get('zv_settings',{}));
 let P=LS.get('zv_profile',null),TAB='chats',PT=0,cacheMB=24.6;const POSTS=[];
 function h(tag,cls,txt){const e=document.createElement(tag);if(cls)e.className=cls;if(txt!=null)e.textContent=txt;return e}
 function saveS(){LS.set('zv_settings',S);applyS()}
@@ -1060,7 +1062,8 @@ function renderSettings(){
   grp('Appearance',[themeRow()]);
   grp('Account',[info('Name',P.name,editSheet),info('Username','@'+P.username,editSheet),info('Phone number',P.phone),info('Gmail',P.email)]);
   grp('Notifications',[tog('Message notifications','notif'),tog('Sound','sound',()=>{if(S.sound)beep()}),tog('Vibration','vib',()=>{if(S.vib&&navigator.vibrate)navigator.vibrate(30)}),tog('Show message preview','preview')]);
-  grp('Privacy and security',[pick('Who can find me by number','find',['Everyone','My contacts','Nobody']),pick('Last seen and online','seen',['Everyone','My contacts','Nobody']),tog('Read receipts','receipts'),info('Blocked contacts',String(blockedCount()),blockedSheet)]);
+  grp('Privacy and security',[window.zvFindRow?zvFindRow(info,opts):pick('Who can find me by number','find',['Everyone','My contacts','Nobody']),tog('Read receipts','receipts'),info('Blocked contacts',String(blockedCount()),blockedSheet)]);
+  if(window.zvSecurityGroups)zvSecurityGroups(grp,info,tog,opts);
   const sr=h('div','st-row col');sr.appendChild(h('div','st-n','Text size'));
   const sl=document.createElement('input');sl.type='range';sl.min=13;sl.max=20;sl.value=S.fs;sl.className='rng';
   const pv=h('div','b in','This is how your messages will look');pv.style.fontSize=S.fs+'px';
@@ -1068,7 +1071,7 @@ function renderSettings(){
   sr.append(sl,pv);
   grp('Chats',[sr,tog('Enter key sends message','enterSend')]);
   grp('Data and storage',[pick('Auto-download media','dl',['Wi-Fi only','Wi-Fi and mobile','Never']),info('Clear cache',cacheMB.toFixed(1)+' MB',()=>{if(!cacheMB){toast('Cache is already empty');return}ask('Clear cache?','Temporary files are removed. Your chats and media stay safe.','Clear cache',()=>{cacheMB=0;renderSettings();toast('Cache cleared')})})]);
-  grp('About',[info('Version','Zyvorli 0.7'),info('Connection check',LIVE?'Run test':'Demo mode',LIVE?connCheck:null)]);
+  grp('About',[info('Version','Zyvorli 0.9'),info('Connection check',LIVE?'Run test':'Demo mode',LIVE?connCheck:null)]);
 }
 applyS();renderNavAv();updateBadges();
 async function connCheck(){
@@ -1109,6 +1112,8 @@ function setFlag(c,k,v){if(!LIVE||!c.uid)return;const f=FL[c.uid]||(FL[c.uid]={}
 function markCut(c,k){if(!LIVE||!c.uid)return;const last=c.msgs.length?c.msgs[c.msgs.length-1].t.getTime():Date.now();setFlag(c,k,last)}
 function toMsg(r,me){
   const m={id:r.id,in:r.sender===me?0:1,type:'text',text:r.body,t:new Date(r.created_at),st:r.read_at?'read':'sent'};
+  m.peer=r.sender===me?r.recipient:r.sender;if(r.edited_at)m.edited=1;
+  if(r.deleted_at){m.type='deleted';m.text='This message was deleted'}else if(typeof r.body==='string'&&r.body.indexOf('e2e1:')===0){m.enc=1;m.raw=r.body;m.text='Decrypting…'}
   if(r.call_status){m.type='call';m.ck=r.call_kind;m.cs=r.call_status;m.cd=r.call_dur||0}
   if(r.att_path){m.type='att';m.path=r.att_path;m.name=r.att_name||'File';m.mime=r.att_type||'';m.bytes=r.att_size||0;m.dur=r.att_dur||0}
   return m;
@@ -1150,16 +1155,17 @@ function applyRows(rows,blocked,me){
   const ids=Object.keys(byU);blocked.forEach(id=>{if(ids.indexOf(id)<0)ids.push(id)});
   ids.forEach(uid=>{
     const f=FL[uid]||{},cut=Math.max(f.clr||0,f.del||0);
-    const msgs=(byU[uid]||[]).filter(r=>new Date(r.created_at).getTime()>cut).map(r=>toMsg(r,me));
+    const msgs=(byU[uid]||[]).filter(r=>new Date(r.created_at).getTime()>cut&&!(window.zvHidden&&zvHidden(r.id))).map(r=>toMsg(r,me));
     const c=chatFor(uid);const p=RT.prof[uid];
     if(p){c.name=RT.alias[uid]||p.name;c.un=p.username;c.who=[c.name]}
     const pend=(c.msgs||[]).filter(m=>m.st==='sending'&&!msgs.some(x=>x.id===m.id));
-    c.msgs=msgs.concat(pend);c.cleared=!!f.clr;c.archived=!!f.arch;c.acc=!!f.acc;c.blocked=blocked.has(uid);
+    c.msgs=msgs.concat(pend).sort((a,b)=>a.t-b.t);c.cleared=!!f.clr;c.archived=!!f.arch;c.acc=!!f.acc;c.blocked=blocked.has(uid);
     const seen=SEEN[uid]||0;
     c.unread=(cur===c)?0:msgs.filter(m=>m.in&&m.st!=='read'&&!(m.type==='call'&&(m.cs==='answered'||m.cs==='declined'))&&m.t.getTime()>seen).length;
   });
   chats.forEach(c=>{if(c.uid&&ids.indexOf(c.uid)<0&&c.blocked)c.blocked=false});
   chats.sort((a,b)=>{const x=a.msgs.length?a.msgs[a.msgs.length-1].t.getTime():0,y=b.msgs.length?b.msgs[b.msgs.length-1].t.getTime():0;return y-x});
+  if(window.zvDecChats)zvDecChats();
   return ids;
 }
 /* show the last known chats instantly while the network catches up */
@@ -1176,14 +1182,14 @@ function saveCache(rows,blocked){
   blocked.forEach(id=>{if(RT.prof[id])prof[id]=RT.prof[id]});
   LS.set('zv_cache_'+RT.uid,{rows:rows.slice(-300),blocked:Array.from(blocked),prof:prof});
 }
-function zvWipe(){try{Object.keys(localStorage).forEach(function(k){if(/^zv_(cache|urls)_/.test(k))localStorage.removeItem(k)})}catch(e){}}
+function zvWipe(){try{Object.keys(localStorage).forEach(function(k){if(/^zv_(cache|urls|hid|known|addr)_/.test(k))localStorage.removeItem(k)})}catch(e){}}
 async function loadChats(){
   if(!LIVE||!A.user)return;
   if(RT.loading){RT.again=true;return}
   RT.loading=true;RT.lastLoad=Date.now();const me=A.user.id;
   try{
     const res=await Promise.all([
-      sb.from('messages').select('id,sender,recipient,body,created_at,read_at,att_path,att_name,att_type,att_size,att_dur,call_kind,call_status,call_dur').or('sender.eq.'+me+',recipient.eq.'+me).order('created_at',{ascending:false}).limit(500),
+      sb.from('messages').select('id,sender,recipient,body,created_at,read_at,att_path,att_name,att_type,att_size,att_dur,call_kind,call_status,call_dur,edited_at,deleted_at').or('sender.eq.'+me+',recipient.eq.'+me).order('created_at',{ascending:false}).limit(500),
       sb.from('blocks').select('blocked')
     ]);
     const mr=res[0],br=res[1];
@@ -1223,7 +1229,7 @@ function subscribeLive(){
   try{
     RT.ch=sb.channel('zv-'+me+'-'+Date.now())
       .on('postgres_changes',{event:'INSERT',schema:'public',table:'messages',filter:'recipient=eq.'+me},p=>onIncoming(p.new))
-      .on('postgres_changes',{event:'UPDATE',schema:'public',table:'messages',filter:'sender=eq.'+me},p=>onReceipt(p.new))
+      .on('postgres_changes',{event:'UPDATE',schema:'public',table:'messages',filter:'sender=eq.'+me},p=>onReceipt(p.new)).on('postgres_changes',{event:'UPDATE',schema:'public',table:'messages',filter:'recipient=eq.'+me},p=>{if(window.zvMsgUpd)zvMsgUpd(p.new)}).on('postgres_changes',{event:'INSERT',schema:'public',table:'messages',filter:'sender=eq.'+me},p=>{if(window.zvOwnInsert)zvOwnInsert(p.new)})
       .subscribe(st=>{RT.status=st;if(st==='SUBSCRIBED'&&Date.now()-(RT.lastLoad||0)>4000)loadChats()});
   }catch(e){RT.status='ERROR'}
 }
@@ -1252,7 +1258,7 @@ async function onIncoming(r){
     c=chatFor(r.sender);
   }
   if(c.msgs.some(m=>m.id===r.id))return;
-  c.msgs.push(toMsg(r,me));bump(c);
+  {const mm=toMsg(r,me);if(window.zvDecMsg)await zvDecMsg(mm);c.msgs.push(mm);c.msgs.sort((a,b)=>a.t-b.t)}bump(c);
   if(cur===c&&document.visibilityState==='visible'){c.unread=0;seenNow(c);markRead(c);renderMsgs()}
   else if(r.call_status==='answered'||r.call_status==='declined'){}
   else{c.unread=(c.unread||0)+1;notify(c);bgNotify(c)}
@@ -1491,12 +1497,12 @@ async function sendLive(text){
   const m={id:uuid(),in:0,type:'text',text:text,t:now(),st:'sending'};
   c.msgs.push(m);bump(c);$('ta').value='';grow();syncBtn();renderMsgs();
   let r;
-  try{r=await sb.from('messages').insert({id:m.id,recipient:c.uid,body:text}).select('created_at').single()}
+  try{r=await zvInsertText(m.id,c.uid,text)}
   catch(e){r={error:e}}
   if(r.error){
     const i=c.msgs.indexOf(m);if(i>-1)c.msgs.splice(i,1);
     if(cur===c){renderMsgs();$('ta').value=text;grow();syncBtn()}
-    toast(r.error.code==='42501'?'You can’t message this person.':'Message not sent. Please check your connection and try again.');
+    toast(zvSendErr(r.error));
   }else{
     m.st='sent';if(r.data&&r.data.created_at)m.t=new Date(r.data.created_at);
     if(cur===c)renderMsgs();
@@ -1541,10 +1547,10 @@ function doSearchLive(){
     let r;try{r=await sb.rpc('find_users',{q:raw})}catch(e){r={error:e}}
     if(seq!==srSeq)return;
     box.innerHTML='';
-    if(r.error){box.appendChild(empty('Search is not ready','Chat setup is not finished on the server yet. Please try again later.'));return}
+    if(r.error){const tm=/too many/i.test(String(r.error.message||''));box.appendChild(empty(tm?'Too many searches':'Search is not ready',tm?'Please wait a few minutes and try again.':'Chat setup is not finished on the server yet. Please try again later.'));return}
     const list=r.data||[];
     if(!list.length){
-      box.appendChild(empty('No Zyvorli account found',isNum?'Nobody has registered with this number yet. Invite them from the Contacts tab.':'Check the spelling, or ask your friend to register first.'));
+      box.appendChild(empty('No Zyvorli account found',isNum?'Nobody can be found with this number. They may not have joined yet, or they chose to be found only by @username. Invite them from the Contacts tab.':'Check the spelling. People who keep their profile private can only be found by their exact @username.'));
       return;
     }
     list.forEach(u=>{const x={id:u.id,n:u.name,un:u.username};box.appendChild(personRow(x,()=>{closeSearch();startChat(x)}))});
@@ -1583,10 +1589,10 @@ async function refreshMatches(force){
       if(!seen[hit.id]){seen[hit.id]=1;on.push({uid:hit.id,n:x.n,name:hit.name,un:hit.username});RT.known[hit.id]=1;RT.alias[hit.id]=x.n;RT.prof[hit.id]=RT.prof[hit.id]||{id:hit.id,name:hit.name,username:hit.username}}
     }else inv.push({n:x.n,phone:x.p[0],t:x.t});
   });
-  RT.onApp=on;RT.invite=inv;
+  RT.onApp=on;RT.invite=inv;if(window.zvJoined)zvJoined(on);
   chats.forEach(c=>{if(c.uid&&RT.alias[c.uid]){c.name=RT.alias[c.uid];c.who=[c.name]}});
 }
-function inviteText(){return 'Hi! I am using Zyvorli to chat. Join me: '+location.href.split('#')[0].split('?')[0]}
+function inviteText(){return 'Hi! I am using Zyvorli to chat. Join me: '+location.href.split('#')[0].split('?')[0]+(RT.uid?'#add='+RT.uid:'')}
 function inviteContact(c){
   const txt=inviteText();
   if(window.__zvInvite){window.__zvInvite(c,txt);return}
@@ -1617,10 +1623,11 @@ function renderContactsLive(){
   const bar=el('div');bar.style.cssText='display:flex;gap:8px;justify-content:center;margin:4px 0 8px;flex-wrap:wrap';
   if(pickerOK()){const b1=el('button','btn',ADDR.length?'Update contacts':'Choose contacts');b1.onclick=async function(){if(await pickContacts()){await refreshMatches(true);renderContacts()}};bar.appendChild(b1)}
   const b2=el('button','btn off','Find people');b2.onclick=openSearch;bar.appendChild(b2);
+  const b3=el('button','btn off','Import contacts file');b3.onclick=function(){zvImportContacts()};bar.appendChild(b3);
   box.appendChild(bar);
   const h1=el('div','hint','On Zyvorli');h1.style.textAlign='left';box.appendChild(h1);
   RT.onApp.forEach(c=>box.appendChild(personRow({id:c.uid,n:c.n,un:c.un},()=>startChat({id:c.uid,n:c.name,un:c.un}))));
-  if(!RT.onApp.length)box.appendChild(empty(ADDR.length?'None of your contacts are on Zyvorli yet':'No contacts added yet',ADDR.length?'Invite them below.':(pickerOK()?'Tap Choose contacts, or use Find people to search by mobile number.':'Use Find people to search by mobile number.')));
+  if(!RT.onApp.length)box.appendChild(empty(ADDR.length?'None of your contacts are on Zyvorli yet':'No contacts added yet',ADDR.length?'Invite them below.':(pickerOK()?'Tap Choose contacts, import a contacts file, or share your invite link below.':'This browser cannot open your contacts directly. Import a contacts file (.vcf or .csv exported from your Contacts app) or share your invite link below.')));
   if(RT.invite.length){
     const h2=el('div','hint','Invite to Zyvorli');h2.style.textAlign='left';box.appendChild(h2);
     RT.invite.slice(0,200).forEach(c=>{
@@ -2315,7 +2322,7 @@ async function startCall(kind,chat){
   if(C!==me)return;
   if(r.error||!r.data){
     const m=String((r.error&&r.error.message)||'');
-    toast(/blocked/i.test(m)?'You can’t call this person.':/mobile number/i.test(m)?'Add your mobile number in Profile first.':/start_call|does not exist|schema cache/i.test(m)?'Calls are not set up on the server yet. Run the new SQL file in Supabase.':'Could not start the call. Check your internet.');
+    toast(/reply to you first/i.test(m)?'You can call this person after they reply to your message.':/too many calls/i.test(m)?'Too many calls to this person. Try again in a few minutes.':/two-step/i.test(m)?'Two-step verification is needed. Log in again.':/blocked/i.test(m)?'You can’t call this person.':/mobile number/i.test(m)?'Add your mobile number in Profile first.':/start_call|does not exist|schema cache/i.test(m)?'Calls are not set up on the server yet. Run the new SQL file in Supabase.':'Could not start the call. Check your internet.');
     cleanup();return;
   }
   me.id=r.data;
@@ -2512,6 +2519,974 @@ function init(){
 }
 window.zvCalls={start:startCall,get active(){return C},init:init,_test:{onCallRow:onCallRow,onCallUpd:onCallUpd,onSignal:onSignal,sub:sub}};
 if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',init);else init();
+})();
+
+</script>
+<script>
+/* ===== Zyvorli end-to-end encryption for text messages (WebCrypto: ECDH P-256 + HKDF + AES-GCM) v0.9 ===== */
+(function(){
+'use strict';
+const TE=new TextEncoder(),TD=new TextDecoder();
+const PFX='e2e1:';
+function b64(u8){let s='';const n=u8.length;for(let i=0;i<n;i+=8192)s+=String.fromCharCode.apply(null,u8.subarray(i,i+8192));return btoa(s)}
+function unb64(s){const b=atob(s),u=new Uint8Array(b.length);for(let i=0;i<b.length;i++)u[i]=b.charCodeAt(i);return u}
+const subtle=window.crypto&&window.crypto.subtle;
+const E={state:'off',pubJwk:null,fresh:false};   /* off | ready | restore | error */
+let KP=null,UID=null;const PEER={};
+
+/* ---- key storage on this phone (IndexedDB) ---- */
+function idb(){return new Promise((res,rej)=>{const r=indexedDB.open('zv-keys',1);r.onupgradeneeded=()=>r.result.createObjectStore('k');r.onsuccess=()=>res(r.result);r.onerror=()=>rej(r.error)})}
+async function idbGet(k){try{const d=await idb();return await new Promise((res,rej)=>{const q=d.transaction('k').objectStore('k').get(k);q.onsuccess=()=>res(q.result);q.onerror=()=>rej(q.error)})}catch(e){return undefined}}
+async function idbSet(k,v){const d=await idb();return new Promise((res,rej)=>{const t=d.transaction('k','readwrite');t.objectStore('k').put(v,k);t.oncomplete=()=>res();t.onerror=()=>rej(t.error)})}
+async function idbDel(k){try{const d=await idb();await new Promise((res)=>{const t=d.transaction('k','readwrite');t.objectStore('k').delete(k);t.oncomplete=()=>res();t.onerror=()=>res()})}catch(e){}}
+
+function pubOf(jwk){return {kty:jwk.kty,crv:jwk.crv,x:jwk.x,y:jwk.y}}
+function samePub(a,b){return !!a&&!!b&&a.x===b.x&&a.y===b.y}
+async function importPair(privJwk){
+  const priv=await subtle.importKey('jwk',privJwk,{name:'ECDH',namedCurve:'P-256'},true,['deriveBits']);
+  const pj=pubOf(privJwk);
+  const pub=await subtle.importKey('jwk',pj,{name:'ECDH',namedCurve:'P-256'},true,[]);
+  return {priv:priv,pub:pub,pubJwk:pj,privJwk:privJwk};
+}
+async function makePair(){
+  const k=await subtle.generateKey({name:'ECDH',namedCurve:'P-256'},true,['deriveBits']);
+  const privJwk=await subtle.exportKey('jwk',k.privateKey);
+  return importPair(privJwk);
+}
+async function serverRow(){
+  try{const r=await sb.from('user_keys').select('pub,backup').eq('user_id',UID).maybeSingle();if(r.error)return {err:r.error};return {row:r.data}}
+  catch(e){return {err:e}}
+}
+
+/* ---- start-up: find or make this person's key ---- */
+async function init(uid){
+  UID=uid;KP=null;E.state='off';E.fresh=false;
+  if(!subtle||!window.indexedDB){E.state='error';return E.state}
+  try{
+    const sr=await serverRow();
+    if(sr.err){E.state='error';return E.state}
+    const row=sr.row;
+    const saved=await idbGet('priv_'+uid);
+    if(saved){
+      let kp=null;try{kp=await importPair(saved)}catch(e){}
+      if(kp&&(!row||samePub(row.pub,kp.pubJwk))){
+        KP=kp;E.pubJwk=kp.pubJwk;E.state='ready';E.hasBackup=!!(row&&row.backup);
+        if(!row){await upsertPub(kp.pubJwk)}
+        return E.state;
+      }
+      await idbDel('priv_'+uid);      /* server says another key is current */
+    }
+    if(row&&row.pub){E.state='restore';E.hasBackup=!!row.backup;E.serverPub=row.pub;return E.state}
+    const kp=await makePair();
+    await idbSet('priv_'+uid,kp.privJwk);
+    KP=kp;E.pubJwk=kp.pubJwk;E.state='ready';E.fresh=true;E.hasBackup=false;
+    await upsertPub(kp.pubJwk);
+    return E.state;
+  }catch(e){E.state='error';return E.state}
+}
+async function upsertPub(pub,clearBackup){
+  const row={user_id:UID,pub:pub,updated_at:new Date().toISOString()};
+  if(clearBackup)row.backup=null;
+  return sb.from('user_keys').upsert(row,{onConflict:'user_id'});
+}
+
+/* ---- backup passphrase ---- */
+async function wrapKey(pass,salt,it){
+  const base=await subtle.importKey('raw',TE.encode(pass),'PBKDF2',false,['deriveKey']);
+  return subtle.deriveKey({name:'PBKDF2',salt:salt,iterations:it,hash:'SHA-256'},base,{name:'AES-GCM',length:256},false,['encrypt','decrypt']);
+}
+async function setBackup(pass){
+  if(!KP)throw new Error('no key');
+  if(!pass||pass.length<8)throw new Error('short');
+  const salt=crypto.getRandomValues(new Uint8Array(16)),iv=crypto.getRandomValues(new Uint8Array(12)),it=310000;
+  const k=await wrapKey(pass,salt,it);
+  const ct=await subtle.encrypt({name:'AES-GCM',iv:iv},k,TE.encode(JSON.stringify(KP.privJwk)));
+  const r=await sb.from('user_keys').update({backup:{v:1,it:it,salt:b64(salt),iv:b64(iv),ct:b64(new Uint8Array(ct))},updated_at:new Date().toISOString()}).eq('user_id',UID);
+  if(r.error)throw r.error;
+  E.hasBackup=true;return true;
+}
+async function restore(pass){
+  const sr=await serverRow();if(sr.err||!sr.row||!sr.row.backup)throw new Error('nobackup');
+  const b=sr.row.backup;
+  let plain;
+  try{
+    const k=await wrapKey(pass,unb64(b.salt),b.it);
+    plain=await subtle.decrypt({name:'AES-GCM',iv:unb64(b.iv)},k,unb64(b.ct));
+  }catch(e){throw new Error('wrong')}
+  const kp=await importPair(JSON.parse(TD.decode(plain)));
+  if(!samePub(sr.row.pub,kp.pubJwk))throw new Error('mismatch');
+  await idbSet('priv_'+UID,kp.privJwk);
+  KP=kp;E.pubJwk=kp.pubJwk;E.state='ready';E.hasBackup=true;
+  return true;
+}
+async function startFresh(){
+  const kp=await makePair();
+  await idbSet('priv_'+UID,kp.privJwk);
+  KP=kp;E.pubJwk=kp.pubJwk;E.state='ready';E.fresh=true;E.hasBackup=false;
+  for(const k in PEER)delete PEER[k];
+  await upsertPub(kp.pubJwk,true);
+  return true;
+}
+
+/* ---- keys shared with one friend ---- */
+async function peer(uid,fresh){
+  const c=PEER[uid];
+  if(c&&!fresh&&Date.now()-c.t<10*60*1000)return c;
+  let r;try{r=await sb.rpc('get_public_key',{uid:uid})}catch(e){return c||null}
+  if(!r||r.error)return c||null;
+  const pj=r.data;
+  if(!pj){if(c&&!fresh)return c;PEER[uid]={t:Date.now(),none:true};return PEER[uid]}
+  if(c&&c.pub&&samePub(c.pub,pj)){c.t=Date.now();return c}
+  const pk=await subtle.importKey('jwk',pubOf(pj),{name:'ECDH',namedCurve:'P-256'},false,[]);
+  const bits=await subtle.deriveBits({name:'ECDH',public:pk},KP.priv,256);
+  const hk=await subtle.importKey('raw',bits,'HKDF',false,['deriveKey']);
+  const ids=[UID,uid].sort().join('|');
+  const aes=await subtle.deriveKey({name:'HKDF',hash:'SHA-256',salt:TE.encode('zyvorli-e2e-v1'),info:TE.encode(ids)},hk,{name:'AES-GCM',length:256},false,['encrypt','decrypt']);
+  PEER[uid]={t:Date.now(),pub:pj,aes:aes};
+  return PEER[uid];
+}
+async function encrypt(uid,text){
+  if(E.state!=='ready')return null;
+  const p=await peer(uid);if(!p||!p.aes)return null;
+  const iv=crypto.getRandomValues(new Uint8Array(12));
+  const ct=await subtle.encrypt({name:'AES-GCM',iv:iv},p.aes,TE.encode(text));
+  return PFX+b64(iv)+'.'+b64(new Uint8Array(ct));
+}
+async function decrypt(uid,body){
+  if(typeof body!=='string'||body.indexOf(PFX)!==0)return body;
+  if(E.state!=='ready')return null;
+  const rest=body.slice(PFX.length),i=rest.indexOf('.');if(i<1)return null;
+  let iv,ct;try{iv=unb64(rest.slice(0,i));ct=unb64(rest.slice(i+1))}catch(e){return null}
+  for(let attempt=0;attempt<2;attempt++){
+    const p=await peer(uid,attempt===1);if(!p||!p.aes)return null;
+    try{return TD.decode(await subtle.decrypt({name:'AES-GCM',iv:iv},p.aes,ct))}catch(e){}
+  }
+  return null;
+}
+/* the 60-digit safety number both people can compare */
+async function fingerprint(uid){
+  const p=await peer(uid);if(!p||!p.pub||!E.pubJwk)return null;
+  const mine={id:UID,x:E.pubJwk.x,y:E.pubJwk.y},theirs={id:uid,x:p.pub.x,y:p.pub.y};
+  const arr=[mine,theirs].sort((a,b)=>a.id<b.id?-1:1);
+  const h=new Uint8Array(await subtle.digest('SHA-256',TE.encode(JSON.stringify(arr))));
+  const g=[];for(let i=0;i<12;i++){g.push(String(((h[i*2]<<8)|h[i*2+1])%100000).padStart(5,'0'))}
+  return g;
+}
+async function hasKey(uid){const p=await peer(uid,true);return !!(p&&p.aes)}
+function wipe(){KP=null;UID=null;E.state='off';for(const k in PEER)delete PEER[k]}
+async function forget(uid){await idbDel('priv_'+uid)}
+Object.assign(E,{init:init,setBackup:setBackup,restore:restore,startFresh:startFresh,encrypt:encrypt,decrypt:decrypt,fingerprint:fingerprint,hasKey:hasKey,wipe:wipe,forget:forget,peer:peer,PFX:PFX});
+window.zvE2E=E;
+})();
+
+</script>
+<script>
+/* ===== Zyvorli v0.9: message actions, encryption wiring, search, day separators, contacts ===== */
+(function(){
+'use strict';
+const E=window.zvE2E;
+const q=id=>document.getElementById(id);
+const EDIT_MS=15*60*1000,MAXB=5800;
+let HID={};
+
+Object.assign(ICONS,{
+zlock:'<rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/>',
+zdots:'<circle cx="12" cy="5" r="1.4"/><circle cx="12" cy="12" r="1.4"/><circle cx="12" cy="19" r="1.4"/>'
+});
+(function css(){
+  const st=document.createElement('style');
+  st.textContent='.b{-webkit-user-select:none;user-select:none;-webkit-touch-callout:none}.b .tx a{-webkit-user-select:text;user-select:text}.b.del .tx{font-style:italic;opacity:.72}'+
+  '.dsep{display:flex;justify-content:center;margin:12px 0 6px}.dsep span{background:var(--pill,#ffffff1a);color:var(--muted);font-size:12px;padding:3px 12px;border-radius:999px}'+
+  '.b.flash{animation:zvf 1.6s}@keyframes zvf{0%,70%{outline:2px solid var(--accent)}100%{outline:2px solid transparent}}'+
+  '.fld.zta{width:100%;min-height:96px;resize:none;font:inherit}.zv-fp{display:grid;grid-template-columns:repeat(4,1fr);gap:8px 10px;font:600 16px ui-monospace,Menlo,monospace;text-align:center;margin:12px 0;letter-spacing:.5px}'+
+  '.hint .ic{width:13px;height:13px;vertical-align:-2px;margin-right:4px}';
+  document.head.appendChild(st);
+})();
+
+/* ---------- hidden-for-me messages ---------- */
+function hidLoad(){HID=LS.get('zv_hid_'+(RT.uid||A.user.id),{})}
+window.zvHidden=function(id){return !!HID[id]};
+
+/* ---------- decrypting ---------- */
+async function decMsg(m){
+  if(!m.enc||m.dec)return;
+  if(E.state==='off')return;
+  if(E.state==='restore'){m.text='Encrypted message (locked: enter your backup passphrase)';m.locked=true;return}
+  if(E.state!=='ready'){m.text='Encrypted message (cannot be opened on this device)';m.locked=true;return}
+  const t=await E.decrypt(m.peer,m.raw);
+  if(t==null){m.text='This message could not be decrypted';m.locked=true}
+  else{m.text=t;m.dec=1;m.locked=false}
+}
+window.zvDecMsg=decMsg;
+let decT=0;
+window.zvDecChats=function(){
+  clearTimeout(decT);
+  decT=setTimeout(async function(){
+    let any=false;
+    for(const c of chats){for(const m of c.msgs){if(m.enc&&!m.dec){const b=m.text;await decMsg(m);if(m.text!==b)any=true}}}
+    if(any){if(cur)renderMsgs();renderList()}
+  },0);
+};
+
+/* ---------- sending text (encrypts when the friend has a key) ---------- */
+const warned={};
+async function insertText(id,uid,text){
+  const bytes=new TextEncoder().encode(text).length;
+  if(bytes>MAXB)return {error:{message:'too long',code:'ZVLONG'}};
+  if(E.state==='off'&&window.zvReady){try{await Promise.race([window.zvReady,new Promise(r=>setTimeout(r,3000))])}catch(e){}}
+  if(E.state==='restore'){promptRestore();return {error:{message:'locked',code:'ZVLOCK'}}}
+  let body=text;
+  if(E.state==='ready'){
+    try{
+      const c=await E.encrypt(uid,text);
+      if(c)body=c;
+      else if(!warned[uid]){warned[uid]=1;toast('This friend has not updated Zyvorli yet, so this message is not end-to-end encrypted.')}
+    }catch(e){}
+  }
+  return sb.from('messages').insert({id:id,recipient:uid,body:body}).select('created_at').single();
+}
+window.zvInsertText=insertText;
+window.zvSendErr=function(e){
+  const m=String((e&&(e.message||''))||'').toLowerCase(),c=e&&e.code;
+  if(c==='ZVLONG')return 'This message is too long. Please send it in two parts.';
+  if(c==='ZVLOCK')return 'Unlock your encrypted chats first.';
+  if(/slow down/.test(m))return 'You are sending too fast. Wait a moment.';
+  if(/wait for a reply/.test(m))return 'Wait for a reply before sending more messages to this person.';
+  if(/two-step/.test(m))return 'Two-step verification is needed. Log in again.';
+  if(c==='42501')return 'You can’t message this person.';
+  return 'Message not sent. Please check your connection and try again.';
+};
+async function sendTextTo(uid,text){
+  const c=chatFor(uid);
+  const m={id:uuid(),in:0,type:'text',text:text,t:now(),st:'sending',peer:uid};
+  c.msgs.push(m);bump(c);renderList();if(cur===c)renderMsgs();
+  let r;try{r=await insertText(m.id,uid,text)}catch(e){r={error:e}}
+  if(r.error){const i=c.msgs.indexOf(m);if(i>-1)c.msgs.splice(i,1);if(cur===c)renderMsgs();renderList();toast(zvSendErr(r.error));return false}
+  m.st='sent';if(r.data&&r.data.created_at)m.t=new Date(r.data.created_at);
+  if(cur===c)renderMsgs();renderList();return true;
+}
+
+/* ---------- live updates: edits, deletes, my own rows from elsewhere ---------- */
+window.zvMsgUpd=function(r){
+  if(!r||!A.user)return;const me=A.user.id;
+  const uid=r.sender===me?r.recipient:r.sender;
+  const c=chats.find(x=>x.uid===uid);if(!c)return;
+  const m=c.msgs.find(x=>x.id===r.id);if(!m)return;
+  let ch=false;
+  if(r.deleted_at&&m.type!=='deleted'){m.type='deleted';m.text='This message was deleted';m.path=null;m.enc=0;m.dec=0;ch=true}
+  else if(r.edited_at&&r.body!==m.raw&&m.type==='text'){
+    m.edited=1;m.raw=r.body;ch=true;
+    if(typeof r.body==='string'&&r.body.indexOf(E.PFX)===0){m.enc=1;m.dec=0;m.text='Decrypting…';decMsg(m).then(function(){if(cur===c)renderMsgs();renderList()})}
+    else{m.enc=0;m.text=r.body}
+  }
+  if(ch){if(cur===c)renderMsgs();renderList()}
+};
+window.zvOwnInsert=async function(r){
+  if(!r||!A.user)return;const me=A.user.id;
+  const c=chatFor(r.recipient);
+  if(c.msgs.some(m=>m.id===r.id))return;
+  const m=toMsg(r,me);await decMsg(m);
+  c.msgs.push(m);c.msgs.sort((a,b)=>a.t-b.t);bump(c);
+  if(cur===c)renderMsgs();renderList();
+};
+
+/* ---------- day separators and hint line ---------- */
+window.zvDaySep=function(t){
+  const d=document.createElement('div');d.className='dsep';
+  const s=document.createElement('span');
+  const today=new Date(),y=new Date(Date.now()-864e5);
+  const same=(a,b)=>a.getFullYear()===b.getFullYear()&&a.getMonth()===b.getMonth()&&a.getDate()===b.getDate();
+  if(same(t,today))s.textContent='Today';
+  else if(same(t,y))s.textContent='Yesterday';
+  else s.textContent=t.toLocaleDateString(undefined,{day:'numeric',month:'short',year:t.getFullYear()===today.getFullYear()?undefined:'numeric'});
+  d.appendChild(s);return d;
+};
+window.zvHintText=function(c){
+  const tip=' Press and hold a message to edit, delete or forward.';
+  if(!LIVE||!c||!c.uid)return 'Messages show instantly, then confirm as sent, then read';
+  if(E.state==='ready'){
+    if(c.e2e===true)return ic('zlock')+'Text messages are end-to-end encrypted.'+tip;
+    if(c.e2e===false)return 'Private, but not end-to-end encrypted yet: your friend needs to update Zyvorli.'+tip;
+  }
+  return 'Messages are private.'+tip;
+};
+window.zvOpened=function(c){
+  if(!LIVE||!c||!c.uid)return;
+  const go=function(){if(E.state!=='ready')return;E.peer(c.uid).then(function(p){const v=!!(p&&p.aes);if(c.e2e!==v){c.e2e=v;if(cur===c)renderMsgs()}}).catch(function(){})};
+  if(E.state==='off'&&window.zvReady)window.zvReady.then(go);else go();
+};
+
+/* ---------- message menu ---------- */
+function copyText(t){try{navigator.clipboard.writeText(t).then(function(){toast('Copied')},function(){toast('Could not copy')})}catch(e){toast('Could not copy')}}
+function msgMenu(m,c){
+  if(!LIVE||!m||!m.id||m.st==='sending')return;
+  const L=[],txt=m.type==='text'&&!m.locked;
+  if(txt)L.push({t:'Copy',fn:function(){copyText(m.text)}});
+  if(!m.in&&txt&&Date.now()-m.t.getTime()<EDIT_MS)L.push({t:'Edit',fn:function(){editSheet(m,c)}});
+  if(txt)L.push({t:'Forward',fn:function(){forwardSheet(m)}});
+  if(m.in&&m.type!=='call')L.push({t:'Report',fn:function(){reportSheet(c,m)}});
+  L.push({t:'Delete for me',fn:function(){delMe(m,c)}});
+  if(!m.in&&m.type!=='call'&&m.type!=='deleted')L.push({t:'Delete for everyone',danger:1,fn:function(){delAll(m,c)}});
+  opts('Message',L);
+}
+function delMe(m,c){
+  HID[m.id]=1;LS.set('zv_hid_'+RT.uid,HID);
+  const i=c.msgs.indexOf(m);if(i>-1)c.msgs.splice(i,1);
+  if(cur===c)renderMsgs();renderList();toast('Deleted for you');
+}
+function delAll(m,c){
+  ask('Delete for everyone?','This removes the message (and any photo or file) for both of you. They will see “This message was deleted”.','Delete for everyone',async function(){
+    let r;try{r=await sb.rpc('delete_message',{mid:m.id})}catch(e){r={error:e}}
+    if(r.error){toast('Could not delete. Check your connection.');return}
+    const p=r.data;
+    if(p){try{await sb.storage.from('attachments').remove([p,p+THUMB])}catch(e){}}
+    m.type='deleted';m.text='This message was deleted';m.path=null;m.enc=0;m.dec=0;m.edited=0;
+    if(cur===c)renderMsgs();renderList();toast('Message deleted');
+  });
+}
+function editSheet(m,c){
+  $('sh').textContent='Edit message';const box=$('disc');box.innerHTML='';
+  const t=document.createElement('textarea');t.className='fld zta';t.value=m.text;t.maxLength=4000;box.appendChild(t);
+  const note=el('div','hint','You can edit a message for 15 minutes after you send it.');box.appendChild(note);
+  const b=el('button','btn','Save');b.style.cssText='width:100%;padding:13px;margin-top:6px';
+  b.onclick=async function(){
+    const v=t.value.trim();if(!v||v===m.text){closeSheet();return}
+    if(new TextEncoder().encode(v).length>MAXB){toast('That is too long.');return}
+    b.disabled=true;
+    let body=v;
+    try{if(E.state==='ready'){const e=await E.encrypt(c.uid,v);if(e)body=e}}catch(e){}
+    let r;try{r=await sb.rpc('edit_message',{mid:m.id,new_body:body})}catch(e){r={error:e}}
+    b.disabled=false;
+    if(r.error){toast(/too late/i.test(r.error.message||'')?'Too late to edit this message.':'Could not edit. Check your connection.');return}
+    m.text=v;m.raw=body;m.edited=1;m.enc=body!==v?1:0;m.dec=m.enc?1:0;
+    closeSheet();if(cur===c)renderMsgs();renderList();
+  };
+  box.appendChild(b);$('sheet').classList.add('on');setTimeout(function(){t.focus()},250);
+}
+function forwardSheet(m){
+  $('sh').textContent='Forward to';const box=$('disc');box.innerHTML='';
+  const L=chats.filter(function(c){return c.uid&&!c.blocked&&!c.group});
+  if(!L.length)box.appendChild(empty('No chats yet','Start a chat first.'));
+  L.forEach(function(c){
+    const r=el('div','row flat');r.style.cursor='pointer';
+    r.innerHTML='<div class="av"></div><div class="grow"><div class="name"></div></div><button class="btn">Send</button>';
+    const a=r.querySelector('.av');a.style.background=c.color;a.textContent=(c.name||'?')[0];r.querySelector('.name').textContent=c.name;
+    const go=async function(){closeSheet();const ok=await sendTextTo(c.uid,m.text);if(ok)toast('Forwarded to '+c.name)};
+    r.onclick=go;r.querySelector('button').onclick=function(e){e.stopPropagation();go()};
+    box.appendChild(r);
+  });
+  $('sheet').classList.add('on');
+}
+function reportSheet(c,m){
+  const why=['Spam','Abuse or harassment','Fake account or scam','Something else'];
+  opts(m?'Report this message':'Report '+c.name,why.map(function(w){return {t:w,fn:async function(){
+    let r;try{r=await sb.from('reports').insert({reported:c.uid,message_id:m?m.id:null,reason:w})}catch(e){r={error:e}}
+    if(r.error){toast('Could not send the report.');return}
+    toast('Report sent. You can also block this person.');
+  }}}));
+}
+window.zvReport=reportSheet;
+
+/* press and hold */
+window.zvBubble=function(m,d,c){
+  if(!LIVE||!c||!c.uid)return;
+  d.dataset.id=m.id||'';
+  let t=0,sx=0,sy=0,fired=false;
+  const stop=function(){clearTimeout(t)};
+  d.addEventListener('pointerdown',function(e){fired=false;sx=e.clientX;sy=e.clientY;clearTimeout(t);t=setTimeout(function(){fired=true;if(navigator.vibrate)navigator.vibrate(12);msgMenu(m,c)},430)});
+  d.addEventListener('pointermove',function(e){if(Math.abs(e.clientX-sx)>9||Math.abs(e.clientY-sy)>9)stop()});
+  ['pointerup','pointerleave','pointercancel'].forEach(function(n){d.addEventListener(n,stop)});
+  d.addEventListener('contextmenu',function(e){e.preventDefault();stop();if(!fired)msgMenu(m,c)});
+  d.addEventListener('click',function(e){if(fired){e.preventDefault();e.stopPropagation();fired=false}},true);
+};
+
+/* ---------- chat menu (the three dots) ---------- */
+function chatMenu(){
+  const c=cur;if(!c)return;
+  const L=[];
+  if(LIVE&&c.uid){
+    L.push({t:'Search in chat',fn:function(){searchChat(c)}});
+    L.push({t:'Verify encryption',fn:function(){verifySheet(c)}});
+    L.push({t:'Report this person',fn:function(){reportSheet(c,null)}});
+    L.push({t:c.blocked?'Unblock':'Block',danger:!c.blocked,fn:function(){
+      if(c.blocked){c.blocked=false;syncBlock(c,false)}else{c.blocked=true;syncBlock(c,true)}
+      setBlocked();renderMsgs();renderList();toast(c.blocked?'Blocked':'Unblocked');
+    }});
+  }else L.push({t:'Demo chat',fn:function(){}});
+  opts(c.name,L);
+}
+async function verifySheet(c){
+  $('sh').textContent='Verify encryption';const box=$('disc');box.innerHTML='';
+  const info=el('div','last','Checking…');info.style.whiteSpace='normal';box.appendChild(info);$('sheet').classList.add('on');
+  let g=null;try{if(E.state==='ready')g=await E.fingerprint(c.uid)}catch(e){}
+  if(!g){info.textContent=E.state==='ready'?c.name+' has not turned on encryption yet (they need the latest app). Their text messages are private but not end-to-end encrypted.':'Encryption is not available on this device right now.';return}
+  info.textContent='Compare these numbers with '+c.name+' in person or on a call. If they are the same on both phones, nobody is listening in between.';
+  const fp=el('div','zv-fp');g.forEach(function(x){fp.appendChild(el('div',null,x))});box.appendChild(fp);
+}
+function searchChat(c){
+  $('sh').textContent='Search in chat';const box=$('disc');box.innerHTML='';
+  const i=h('input','fld');i.placeholder='Search messages';i.autocomplete='off';box.appendChild(i);
+  const res=el('div');res.style.cssText='max-height:46vh;overflow:auto;margin-top:8px';box.appendChild(res);
+  const run=function(){
+    res.innerHTML='';const s=i.value.trim().toLowerCase();if(s.length<2)return;
+    const hits=c.msgs.filter(function(m){return (m.type==='text'||m.type==='att')&&!m.locked&&String(m.text||m.name||'').toLowerCase().indexOf(s)>-1}).slice(-40).reverse();
+    if(!hits.length){res.appendChild(empty('No matches',''));return}
+    hits.forEach(function(m){
+      const r=el('div','row flat');r.style.cursor='pointer';
+      r.innerHTML='<div class="grow"><div class="name"></div><div class="last"></div></div>';
+      r.querySelector('.name').textContent=String(m.text||m.name).slice(0,80);
+      r.querySelector('.last').textContent=m.t.toLocaleString(undefined,{day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'});
+      r.onclick=function(){closeSheet();jumpTo(c,m.id)};res.appendChild(r);
+    });
+  };
+  i.oninput=run;$('sheet').classList.add('on');setTimeout(function(){i.focus()},250);
+}
+function jumpTo(c,id){
+  if(cur!==c)openChat(c);
+  c.show=Math.max(c.show||80,c.msgs.length+1);renderMsgs();
+  const e=q('msgs').querySelector('[data-id="'+id+'"]');
+  if(e){e.scrollIntoView({block:'center'});e.classList.add('flash');setTimeout(function(){e.classList.remove('flash')},1700)}
+}
+/* search across all chats, shown under the people results */
+(function(){
+  let box=null,t=0,mo=null;
+  function hits(){
+    const s=(q('q').value||'').trim().toLowerCase();
+    const res=q('res');if(!res)return;
+    if(box&&box.parentNode)box.parentNode.removeChild(box);
+    if(s.length<2||!LIVE)return;
+    const out=[];
+    chats.forEach(function(c){c.msgs.forEach(function(m){if(m.type==='text'&&!m.locked&&String(m.text).toLowerCase().indexOf(s)>-1)out.push({c:c,m:m})})});
+    if(!out.length)return;
+    out.sort(function(a,b){return b.m.t-a.m.t});
+    box=el('div');
+    const hd=el('div','hint','In your chats');hd.style.textAlign='left';box.appendChild(hd);
+    out.slice(0,25).forEach(function(o){
+      const r=el('div','row flat');r.style.cursor='pointer';
+      r.innerHTML='<div class="av"></div><div class="grow"><div class="name"></div><div class="last"></div></div>';
+      const a=r.querySelector('.av');a.style.background=o.c.color;a.textContent=(o.c.name||'?')[0];
+      r.querySelector('.name').textContent=o.c.name;r.querySelector('.last').textContent=String(o.m.text).slice(0,90);
+      r.onclick=function(){closeSearch();openChat(o.c);setTimeout(function(){jumpTo(o.c,o.m.id)},60)};
+      box.appendChild(r);
+    });
+    res.appendChild(box);
+  }
+  function arm(){
+    clearTimeout(t);t=setTimeout(hits,420);
+    if(!mo){mo=new MutationObserver(function(){if(box&&!box.parentNode&&(q('q').value||'').trim().length>1){clearTimeout(t);t=setTimeout(hits,60)}});mo.observe(q('res'),{childList:true})}
+  }
+  const qi=q('q');if(qi){qi.addEventListener('input',arm);qi.placeholder='Number, @username or message text'}
+})();
+
+/* ---------- restore / unlock encrypted chats ---------- */
+let restoreOpen=false;
+function promptRestore(){
+  if(restoreOpen||E.state!=='restore')return;restoreOpen=true;
+  $('sh').textContent='Unlock your encrypted chats';const box=$('disc');box.innerHTML='';
+  const n=el('div','last',E.hasBackup?'This is a new phone or browser. Enter the backup passphrase you chose to read your older text messages.':'Your encrypted messages were made on another phone and no backup passphrase was saved, so they cannot be opened here.');n.style.cssText='white-space:normal;margin-bottom:10px';box.appendChild(n);
+  const err=el('div','a-err');
+  if(E.hasBackup){
+    const i=h('input','fld');i.type='password';i.placeholder='Backup passphrase';i.autocomplete='off';box.appendChild(i);box.appendChild(err);
+    const b=el('button','btn','Unlock');b.style.cssText='width:100%;padding:13px;margin-top:8px';
+    b.onclick=async function(){
+      b.disabled=true;err.textContent='';
+      try{await E.restore(i.value);restoreOpen=false;closeSheet();zvDecChats();toast('Chats unlocked')}
+      catch(e){err.textContent=e&&e.message==='wrong'?'That passphrase is not right.':'Could not unlock. Try again.'}
+      b.disabled=false;
+    };
+    box.appendChild(b);
+  }
+  const f=el('button','btn off','Start fresh (older messages stay locked)');f.style.cssText='width:100%;padding:12px;margin-top:8px';
+  f.onclick=function(){ask('Start fresh?','You will not be able to read older encrypted messages. New messages will work normally.','Start fresh',async function(){try{await E.startFresh();restoreOpen=false;zvDecChats();toast('New encryption key created')}catch(e){toast('Could not start fresh')}})};
+  box.appendChild(f);
+  const l=el('button',null,'Not now');l.style.cssText='width:100%;margin-top:4px';l.onclick=function(){restoreOpen=false;closeSheet()};box.appendChild(l);
+  $('sheet').classList.add('on');
+}
+window.zvRestorePrompt=function(){restoreOpen=false;promptRestore()};
+
+/* ---------- contacts: file import, joined notices, personal link ---------- */
+function parseContacts(text,name){
+  const out=[];
+  if(/\.vcf$/i.test(name)||/BEGIN:VCARD/i.test(text)){
+    text.split(/BEGIN:VCARD/i).slice(1).forEach(function(card){
+      const n=(/^FN[^:\r\n]*:(.*)$/mi.exec(card)||[])[1]||'';
+      const tel=[];card.split(/\r?\n/).forEach(function(l){if(/^(item\d+\.)?TEL/i.test(l)){const v=l.slice(l.indexOf(':')+1);if(tail10(v))tel.push(v.trim())}});
+      if(tel.length)out.push({name:[n.trim()||'Unknown'],tel:tel});
+    });
+  }else{
+    const lines=text.split(/\r?\n/).filter(Boolean);
+    lines.forEach(function(l){
+      const cells=l.split(/[,;\t]/).map(function(x){return x.replace(/^"|"$/g,'').trim()});
+      const tel=cells.filter(function(x){return /^[+\d][\d\s()-]{8,}$/.test(x)&&tail10(x)});
+      if(!tel.length)return;
+      const nm=cells.find(function(x){return x&&!/^[+\d][\d\s()-]{6,}$/.test(x)&&!/@/.test(x)})||'Unknown';
+      out.push({name:[nm],tel:tel});
+    });
+  }
+  return out;
+}
+function mergeContacts(sel){
+  const byKey={};ADDR.forEach(function(x){byKey[x.p[0]]=x});
+  sel.forEach(function(c){
+    const tails=[];(c.tel||[]).forEach(function(t){const k=tail10(t);if(k&&tails.indexOf(k)<0)tails.push(k)});
+    if(!tails.length)return;
+    byKey[tails[0]]={n:((c.name&&c.name[0])||'Unknown'),p:tails,t:String((c.tel||[])[0]||'')};
+  });
+  ADDR=Object.keys(byKey).map(function(k){return byKey[k]}).sort(function(a,b){return a.n.localeCompare(b.n)});
+  LS.set('zv_addr_'+RT.uid,ADDR);
+}
+window.zvImportContacts=function(){
+  const f=document.createElement('input');f.type='file';f.accept='.vcf,.csv,text/vcard,text/csv,text/x-vcard';
+  f.onchange=async function(){
+    const file=f.files&&f.files[0];if(!file)return;
+    if(file.size>8*1048576){toast('That file is too big.');return}
+    const txt=await file.text();
+    const list=parseContacts(txt,file.name);
+    if(!list.length){toast('No phone numbers found in that file.');return}
+    mergeContacts(list);granted=true;permSet('contacts');
+    await refreshMatches(true);renderContacts();
+    toast(list.length+' contacts read. '+RT.onApp.length+' are on Zyvorli.');
+  };
+  f.click();
+};
+window.zvParseContacts=parseContacts;
+window.zvJoined=function(on){
+  try{
+    const k='zv_known_'+RT.uid,had=LS.get(k,null),now=on.map(function(x){return x.uid});
+    LS.set(k,now);
+    if(!had)return;
+    const fresh=on.filter(function(x){return had.indexOf(x.uid)<0});
+    if(!fresh.length)return;
+    const msg=fresh.length===1?fresh[0].n+' joined Zyvorli':fresh.length+' of your contacts joined Zyvorli';
+    toast(msg);
+    if(document.visibilityState!=='visible'&&'Notification' in window&&Notification.permission==='granted'&&S.notif){
+      navigator.serviceWorker.ready.then(function(r){r.showNotification('Zyvorli',{body:msg,icon:'icon-192.png',tag:'zv-joined'})}).catch(function(){});
+    }
+  }catch(e){}
+};
+/* personal link: opens a "Message [name]?" card */
+(function(){
+  const m=/[#&]add=([0-9a-f-]{36})/i.exec(location.hash||'');
+  if(m){try{localStorage.setItem('zv_pending_add',m[1].toLowerCase());history.replaceState(null,'',location.href.split('#')[0])}catch(e){}}
+})();
+async function handleAdd(){
+  let id=null;try{id=localStorage.getItem('zv_pending_add')}catch(e){}
+  if(!id||!A.user||id===A.user.id){try{localStorage.removeItem('zv_pending_add')}catch(e){}return}
+  try{localStorage.removeItem('zv_pending_add')}catch(e){}
+  let r;try{r=await sb.rpc('profile_card',{uid:id})}catch(e){return}
+  const p=r&&r.data&&r.data[0];if(!p){toast('That link is no longer valid.');return}
+  ask('Message '+p.name+'?','@'+p.username+' shared their Zyvorli link with you.','Open chat',function(){startChat({id:p.id,n:p.name,un:p.username})});
+  const y=q('yes');if(y)y.style.background='var(--accent)';
+}
+window.zvShareLink=function(){
+  const url=location.href.split('#')[0].split('?')[0]+'#add='+A.user.id;
+  const txt='Chat with me on Zyvorli: '+url;
+  if(navigator.share){navigator.share({title:'Zyvorli',text:txt}).catch(function(){});return}
+  try{navigator.clipboard.writeText(txt).then(function(){toast('Your link is copied')},function(){toast(url)})}catch(e){toast(url)}
+};
+
+/* ---------- start-up wrapper ---------- */
+const oldStart=window.startLive;
+window.startLive=async function(){
+  if(!LIVE||!A.user)return oldStart.apply(this,arguments);
+  if(RT.uid===A.user.id)return;
+  if(window.zvMfaGate&&!(await window.zvMfaGate()))return;
+  const me=A.user.id;
+  hidLoad();
+  E.wipe();
+  window.zvReady=E.init(me).then(function(){
+    zvDecChats();
+    if(cur)zvOpened(cur);
+    if(E.state==='restore')setTimeout(promptRestore,600);
+    else if(E.fresh)setTimeout(function(){toast('Chats are now end-to-end encrypted. Set a backup passphrase in Settings.')},1500);
+  }).catch(function(){});
+  const r=oldStart.apply(this,arguments);
+  try{if(window.zvAfterLogin)window.zvAfterLogin()}catch(e){}
+  setTimeout(handleAdd,1200);
+  setInterval(function(){if(document.visibilityState==='visible'&&RT.uid)refreshMatches(false)},15*60*1000);
+  return r;
+};
+document.addEventListener('DOMContentLoaded',function(){});
+const dots=document.querySelector('#chat .bar [data-ic="dots"]');
+if(dots&&dots.parentNode)dots.parentNode.onclick=function(){chatMenu()};
+window.zvMsgMenu=msgMenu;
+window.zvChatMenu=chatMenu;
+})();
+
+</script>
+<script>
+/* ===== Zyvorli v0.9 security center: app lock, two-step verification, devices, backup passphrase, privacy, account ===== */
+(function(){
+'use strict';
+const E=window.zvE2E,TE=new TextEncoder();
+const q=id=>document.getElementById(id);
+const SEC={mfa:null,mfaFactor:null,devices:null};
+function b64(u8){let s='';for(let i=0;i<u8.length;i++)s+=String.fromCharCode(u8[i]);return btoa(s)}
+function unb64(s){const b=atob(s),u=new Uint8Array(b.length);for(let i=0;i<b.length;i++)u[i]=b.charCodeAt(i);return u}
+function elx(tag,cls,txt){const e=document.createElement(tag);if(cls)e.className=cls;if(txt!=null)e.textContent=txt;return e}
+
+(function css(){
+  const st=document.createElement('style');
+  st.textContent='#zlock,#zmfa{position:fixed;inset:0;display:none;align-items:center;justify-content:center;background:var(--bg,#0d1017);color:var(--text,#fff);font-family:inherit}'+
+  '#zlock{z-index:8500}#zmfa{z-index:8600}#zlock.on,#zmfa.on{display:flex}'+
+  '.zl-box{width:min(340px,92vw);display:flex;flex-direction:column;align-items:center;gap:14px;padding:20px}'+
+  '.zl-t{font-size:20px;font-weight:700}.zl-s{font-size:13px;color:var(--muted);text-align:center}'+
+  '.zl-d{display:flex;gap:12px;margin:6px 0}.zl-d i{width:14px;height:14px;border-radius:50%;border:2px solid var(--muted)}.zl-d i.on{background:var(--accent);border-color:var(--accent)}'+
+  '.zl-e{min-height:18px;color:var(--danger,#ff5d6c);font-size:13px;text-align:center}'+
+  '.zl-k{display:grid;grid-template-columns:repeat(3,76px);gap:12px;margin-top:4px}'+
+  '.zl-k button{height:64px;border-radius:50%;background:var(--pill,#ffffff1f);color:inherit;border:0;font-size:24px;font-weight:600;cursor:pointer}.zl-k button:active{background:var(--accent);color:var(--acc-t,#fff)}'+
+  '.zl-f{background:none;border:0;color:var(--muted);font-size:13px;margin-top:8px;cursor:pointer;text-decoration:underline}'+
+  '#zmfa .fld{width:100%;text-align:center;font-size:24px;letter-spacing:6px}'+
+  '.zq{display:flex;flex-direction:column;align-items:center;gap:8px}.zq img{width:176px;height:176px;background:#fff;border-radius:12px;padding:6px}.zq code{font:600 13px ui-monospace,Menlo,monospace;word-break:break-all;text-align:center;user-select:all}';
+  document.head.appendChild(st);
+})();
+
+/* ================= App lock (stays on this phone) ================= */
+const LK='zv_lock',LF='zv_lock_f';
+const AUTO=[{t:'Immediately',ms:0},{t:'After 1 minute',ms:60000},{t:'After 5 minutes',ms:300000}];
+function lockCfg(){return LS.get(LK,null)}
+async function hashPin(pin,salt,it){
+  const k=await crypto.subtle.importKey('raw',TE.encode(pin),'PBKDF2',false,['deriveBits']);
+  return b64(new Uint8Array(await crypto.subtle.deriveBits({name:'PBKDF2',salt:salt,iterations:it,hash:'SHA-256'},k,256)));
+}
+function buildLock(){
+  if(q('zlock'))return;
+  const d=elx('div');d.id='zlock';
+  d.innerHTML='<div class="zl-box"><div class="zl-t">Zyvorli is locked</div><div class="zl-s">Enter your PIN</div><div class="zl-d"></div><div class="zl-e"></div><div class="zl-k"></div><button class="zl-f">Forgot PIN? Log out</button></div>';
+  document.body.appendChild(d);
+  const dots=d.querySelector('.zl-d');for(let i=0;i<6;i++)dots.appendChild(elx('i'));
+  const k=d.querySelector('.zl-k');
+  ['1','2','3','4','5','6','7','8','9','','0','<'].forEach(function(c){
+    const b=elx('button',null,c==='<'?'⌫':c);
+    if(!c){b.style.visibility='hidden'}else b.onclick=function(){press(c)};
+    k.appendChild(b);
+  });
+  d.querySelector('.zl-f').onclick=function(){
+    if(!confirm('Log out of Zyvorli on this phone? Your chats stay in your account.'))return;
+    LS.del(LK);LS.del(LF);LS.del('zv_profile');try{zvWipe()}catch(e){}
+    Promise.resolve(LIVE&&sb.auth.signOut()).catch(function(){}).then(function(){location.reload()});
+  };
+  document.addEventListener('keydown',function(e){if(!d.classList.contains('on'))return;if(/^\d$/.test(e.key))press(e.key);else if(e.key==='Backspace')press('<')});
+}
+let pin='',busyL=false;
+function paint(){const dots=q('zlock').querySelectorAll('.zl-d i');dots.forEach(function(i,n){i.classList.toggle('on',n<pin.length)})}
+async function press(c){
+  if(busyL)return;
+  const err=q('zlock').querySelector('.zl-e'),f=LS.get(LF,{n:0,until:0});
+  if(Date.now()<f.until){err.textContent='Too many tries. Wait '+Math.ceil((f.until-Date.now())/1000)+' seconds.';return}
+  if(c==='<')pin=pin.slice(0,-1);else if(pin.length<6)pin+=c;
+  paint();err.textContent='';
+  if(pin.length<6)return;
+  busyL=true;
+  const cfg=lockCfg();let ok=false;
+  try{ok=!!cfg&&(await hashPin(pin,unb64(cfg.s),cfg.it))===cfg.h}catch(e){}
+  busyL=false;
+  if(ok){LS.del(LF);pin='';paint();q('zlock').classList.remove('on');return}
+  const n=(f.n||0)+1;pin='';paint();
+  const wait=n>=5?Math.min(600,30*Math.pow(2,n-5)):0;
+  LS.set(LF,{n:n,until:wait?Date.now()+wait*1000:0});
+  err.textContent=wait?'Wrong PIN. Wait '+wait+' seconds.':'Wrong PIN. '+(5-n)+' tries left before a wait.';
+}
+function showLock(){if(!lockCfg())return;buildLock();pin='';paint();q('zlock').classList.add('on')}
+let hiddenAt=0;
+document.addEventListener('visibilitychange',function(){
+  const cfg=lockCfg();if(!cfg)return;
+  if(document.visibilityState==='hidden'){hiddenAt=Date.now();if(cfg.auto===0)showLock()}
+  else if(hiddenAt&&Date.now()-hiddenAt>=cfg.auto)showLock();
+});
+function lockSheet(){
+  const cfg=lockCfg();
+  if(!cfg){
+    $('sh').textContent='Turn on app lock';const box=$('disc');box.innerHTML='';
+    const n=elx('div','last','Choose a 6-digit PIN. Zyvorli will ask for it when you open the app. The PIN stays on this phone only.');n.style.cssText='white-space:normal;margin-bottom:8px';box.appendChild(n);
+    const a=h('input','fld');a.type='password';a.inputMode='numeric';a.maxLength=6;a.placeholder='New PIN';a.autocomplete='off';
+    const b=h('input','fld');b.type='password';b.inputMode='numeric';b.maxLength=6;b.placeholder='Repeat PIN';b.autocomplete='off';b.style.marginTop='8px';
+    const err=h('div','a-err');
+    const go=elx('button','btn','Turn on');go.style.cssText='width:100%;padding:13px;margin-top:8px';
+    go.onclick=async function(){
+      if(!/^\d{6}$/.test(a.value)){err.textContent='Use exactly 6 digits.';return}
+      if(a.value!==b.value){err.textContent='The two PINs are different.';return}
+      const salt=crypto.getRandomValues(new Uint8Array(16)),it=150000;
+      LS.set(LK,{s:b64(salt),it:it,h:await hashPin(a.value,salt,it),auto:60000});
+      closeSheet();renderSettings();toast('App lock is on');
+    };
+    box.append(a,b,err,go);$('sheet').classList.add('on');return;
+  }
+  opts('App lock',[
+    {t:'Auto-lock: '+(AUTO.find(function(x){return x.ms===cfg.auto})||AUTO[1]).t,fn:function(){opts('Lock the app',AUTO.map(function(x){return {t:x.t,fn:function(){const c=lockCfg();c.auto=x.ms;LS.set(LK,c);renderSettings()}}}))}},
+    {t:'Turn off app lock',danger:1,fn:function(){turnOffLock()}}
+  ]);
+}
+function turnOffLock(){
+  $('sh').textContent='Turn off app lock';const box=$('disc');box.innerHTML='';
+  const a=h('input','fld');a.type='password';a.inputMode='numeric';a.maxLength=6;a.placeholder='Enter your PIN';a.autocomplete='off';
+  const err=h('div','a-err');const go=elx('button','btn','Turn off');go.style.cssText='width:100%;padding:13px;margin-top:8px';
+  go.onclick=async function(){const cfg=lockCfg();let ok=false;try{ok=(await hashPin(a.value,unb64(cfg.s),cfg.it))===cfg.h}catch(e){}if(!ok){err.textContent='Wrong PIN.';return}LS.del(LK);LS.del(LF);closeSheet();renderSettings();toast('App lock is off')};
+  box.append(a,err,go);$('sheet').classList.add('on');
+}
+if(lockCfg()){buildLock();showLock()}
+
+/* ================= Two-step verification (authenticator app) ================= */
+async function mfaStatus(){
+  try{
+    const r=await sb.auth.mfa.listFactors();
+    const t=(r.data&&r.data.totp)||[];
+    SEC.mfaFactor=t.find(function(f){return f.status==='verified'})||null;
+    const on=!!SEC.mfaFactor;if(SEC.mfa!==on){SEC.mfa=on;if(typeof renderSettings==='function'&&TAB==='settings')renderSettings()}
+    return on;
+  }catch(e){return SEC.mfa}
+}
+window.zvMfaGate=async function(){
+  try{
+    if(!sb.auth.mfa)return true;
+    const a=await sb.auth.mfa.getAuthenticatorAssuranceLevel();
+    const d=a&&a.data;
+    if(!d||d.nextLevel!=='aal2'||d.currentLevel==='aal2')return true;
+  }catch(e){return true}
+  showGate();return false;
+};
+function showGate(){
+  let d=q('zmfa');
+  if(!d){
+    d=elx('div');d.id='zmfa';
+    d.innerHTML='<div class="zl-box"><div class="zl-t">Two-step verification</div><div class="zl-s">Open your authenticator app and enter the 6-digit code for Zyvorli.</div><input class="fld" inputmode="numeric" maxlength="6" autocomplete="one-time-code" placeholder="000000"><div class="zl-e"></div><button class="btn" style="width:100%;padding:13px">Verify</button><button class="zl-f">Log out</button></div>';
+    document.body.appendChild(d);
+    const inp=d.querySelector('input'),err=d.querySelector('.zl-e'),btn=d.querySelector('.btn');
+    const go=async function(){
+      if(!/^\d{6}$/.test(inp.value.trim()))return;
+      btn.disabled=true;err.textContent='';
+      try{
+        const l=await sb.auth.mfa.listFactors();
+        const f=((l.data&&l.data.totp)||[]).find(function(x){return x.status==='verified'});
+        if(!f)throw new Error('none');
+        const c=await sb.auth.mfa.challenge({factorId:f.id});if(c.error)throw c.error;
+        const v=await sb.auth.mfa.verify({factorId:f.id,challengeId:c.data.id,code:inp.value.trim()});if(v.error)throw v.error;
+        d.classList.remove('on');inp.value='';window.startLive();
+      }catch(e){err.textContent='That code is not right. Wait for a new code and try again.'}
+      btn.disabled=false;
+    };
+    btn.onclick=go;inp.addEventListener('input',function(){if(inp.value.trim().length===6)go()});
+    d.querySelector('.zl-f').onclick=function(){Promise.resolve(sb.auth.signOut()).catch(function(){}).then(function(){LS.del('zv_profile');try{zvWipe()}catch(e){}location.reload()})};
+  }
+  d.classList.add('on');setTimeout(function(){d.querySelector('input').focus()},200);
+}
+async function mfaSheet(){
+  const on=await mfaStatus();
+  $('sh').textContent='Two-step verification';const box=$('disc');box.innerHTML='';
+  const n=elx('div','last',on?'Two-step verification is ON. After the emailed code, Zyvorli also asks for a code from your authenticator app, so a stolen SIM or email alone cannot open your account.':'Add a second lock with an authenticator app (Google Authenticator, Microsoft Authenticator, Authy). Even if someone gets your email or SIM, they cannot log in without your phone.');
+  n.style.cssText='white-space:normal;margin-bottom:10px';box.appendChild(n);
+  if(on){
+    const b=elx('button','btn','Turn off two-step verification');b.style.cssText='width:100%;padding:13px;background:#e53958';
+    b.onclick=async function(){const r=await sb.auth.mfa.unenroll({factorId:SEC.mfaFactor.id});if(r.error){toast('Could not turn it off. Log in again and retry.');return}SEC.mfa=false;SEC.mfaFactor=null;closeSheet();renderSettings();toast('Two-step verification is off')};
+    box.appendChild(b);
+  }else{
+    const b=elx('button','btn','Set up');b.style.cssText='width:100%;padding:13px';b.onclick=mfaEnroll;box.appendChild(b);
+  }
+  $('sheet').classList.add('on');
+}
+async function mfaEnroll(){
+  const box=$('disc');box.innerHTML='';$('sh').textContent='Set up two-step verification';
+  box.appendChild(elx('div','last','Preparing…'));
+  try{
+    const l=await sb.auth.mfa.listFactors();
+    for(const f of ((l.data&&l.data.all)||[])){if(f.status!=='verified')await sb.auth.mfa.unenroll({factorId:f.id})}
+    const r=await sb.auth.mfa.enroll({factorType:'totp',friendlyName:'Zyvorli '+Date.now()});
+    if(r.error)throw r.error;
+    box.innerHTML='';
+    const t=elx('div','last','1. Scan this code with your authenticator app, or type the key. 2. Enter the 6-digit code it shows.');t.style.cssText='white-space:normal;margin-bottom:8px';box.appendChild(t);
+    const z=elx('div','zq');const im=document.createElement('img');im.alt='QR code';im.src=r.data.totp.qr_code;z.appendChild(im);
+    z.appendChild(elx('div','last','Key (keep it safe):'));z.appendChild(elx('code',null,r.data.totp.secret));box.appendChild(z);
+    const w=elx('div','hint','Important: if you lose your authenticator app and this key, you cannot log in. Save the key somewhere safe.');w.style.cssText+=';color:var(--danger,#ff8a8a)';box.appendChild(w);
+    const inp=h('input','fld');inp.inputMode='numeric';inp.maxLength=6;inp.placeholder='6-digit code';inp.autocomplete='off';box.appendChild(inp);
+    const err=h('div','a-err');box.appendChild(err);
+    const go=elx('button','btn','Turn on');go.style.cssText='width:100%;padding:13px;margin-top:8px';
+    go.onclick=async function(){
+      go.disabled=true;err.textContent='';
+      try{
+        const c=await sb.auth.mfa.challenge({factorId:r.data.id});if(c.error)throw c.error;
+        const v=await sb.auth.mfa.verify({factorId:r.data.id,challengeId:c.data.id,code:inp.value.trim()});if(v.error)throw v.error;
+        SEC.mfa=true;SEC.mfaFactor={id:r.data.id};closeSheet();renderSettings();toast('Two-step verification is on');
+      }catch(e){err.textContent='That code is not right. Try the next code.'}
+      go.disabled=false;
+    };
+    box.appendChild(go);
+  }catch(e){box.innerHTML='';box.appendChild(elx('div','last','Two-step verification is not available yet. In Supabase, open Authentication, Sign In / Providers, and turn on MFA (TOTP).'));}
+}
+
+/* ================= Logged-in devices ================= */
+function devId(){let d=null;try{d=localStorage.getItem('zv_dev')}catch(e){}if(!d){d=(crypto.randomUUID?crypto.randomUUID():String(Date.now())+Math.random().toString(36).slice(2));try{localStorage.setItem('zv_dev',d)}catch(e){}}return d}
+function devName(){
+  const u=navigator.userAgent;
+  const os=/Android/i.test(u)?'Android':/iPhone|iPad|iPod/i.test(u)?'iPhone/iPad':/Windows/i.test(u)?'Windows':/Mac OS X/i.test(u)?'Mac':/Linux/i.test(u)?'Linux':'Device';
+  const br=/Edg\//.test(u)?'Edge':/OPR\//.test(u)?'Opera':/Chrome\//.test(u)?'Chrome':/Firefox\//.test(u)?'Firefox':/Safari\//.test(u)?'Safari':'Browser';
+  return br+' on '+os;
+}
+async function touchDevice(){
+  try{
+    const r=await sb.rpc('touch_device',{did:devId(),dname:devName()});
+    if(r&&!r.error&&r.data){forceOut('This device was logged out from another device.')}
+  }catch(e){}
+}
+function forceOut(msg){
+  try{localStorage.setItem('zv_flash',msg)}catch(e){}
+  LS.del('zv_profile');try{zvWipe()}catch(e){}
+  Promise.resolve(sb.auth.signOut({scope:'local'})).catch(function(){}).then(function(){location.reload()});
+}
+async function devicesSheet(){
+  $('sh').textContent='Logged-in devices';const box=$('disc');box.innerHTML='';
+  box.appendChild(elx('div','last','Loading…'));$('sheet').classList.add('on');
+  let r;try{r=await sb.from('devices').select('id,name,last_seen,revoked_at').is('revoked_at',null).order('last_seen',{ascending:false})}catch(e){r={error:e}}
+  box.innerHTML='';
+  if(r.error){box.appendChild(elx('div','last','Could not load devices. Run the latest SQL file in Supabase.'));return}
+  const me=devId();
+  (r.data||[]).forEach(function(d){
+    const row=elx('div','row flat');row.innerHTML='<div class="grow"><div class="name"></div><div class="last"></div></div>';
+    row.querySelector('.name').textContent=d.name+(d.id===me?' (this device)':'');
+    const ago=Math.round((Date.now()-new Date(d.last_seen).getTime())/60000);
+    row.querySelector('.last').textContent=ago<2?'Active now':ago<60?'Active '+ago+' minutes ago':ago<1440?'Active '+Math.round(ago/60)+' hours ago':'Active '+Math.round(ago/1440)+' days ago';
+    if(d.id!==me){const b=elx('button','btn off','Remove');b.onclick=async function(){await sb.from('devices').update({revoked_at:new Date().toISOString()}).eq('id',d.id);toast('Device removed');devicesSheet()};row.appendChild(b)}
+    box.appendChild(row);
+  });
+  const all=elx('button','btn','Log out all other devices');all.style.cssText='width:100%;padding:13px;margin-top:10px';
+  all.onclick=function(){ask('Log out other devices?','Every other phone and browser is logged out of your account. You stay logged in here.','Log out others',async function(){
+    try{await sb.from('devices').update({revoked_at:new Date().toISOString()}).neq('id',devId())}catch(e){}
+    let e2;try{e2=(await sb.auth.signOut({scope:'others'})).error}catch(e){e2=e}
+    toast(e2?'Could not log out other devices.':'Other devices were logged out')
+  })};
+  box.appendChild(all);
+  box.appendChild(elx('div','hint','Another device can stay signed in for up to an hour after you remove it. Turning on two-step verification stops a stolen login.'));
+}
+
+/* ================= Encryption screens ================= */
+function encInfo(){
+  $('sh').textContent='Encryption and privacy';const box=$('disc');box.innerHTML='';
+  const st={ready:'ON for text messages',restore:'LOCKED on this device',off:'Starting…',error:'Not available yet'}[E.state]||'';
+  const P1=function(t,b){const d=elx('div');d.style.cssText='margin-bottom:10px';const x=elx('b',null,t);x.style.display='block';const y=elx('div','last',b);y.style.whiteSpace='normal';d.append(x,y);box.appendChild(d)};
+  P1('Status: '+st,'Your text messages are locked on your phone and can be opened only by you and the person you are chatting with. Zyvorli’s servers, and the people who run them, cannot read them.');
+  P1('What is NOT end-to-end encrypted yet','Photos, files and voice messages are stored in a private area that only the two of you can open, but they are not end-to-end encrypted yet. Names, who you talk to, and when, are visible to the service. Voice and video calls are encrypted between the two phones.');
+  P1('Check that nobody is listening in','Open a chat, tap the three dots, then Verify encryption. Compare the numbers with your friend.');
+  P1('Changing phones','Set a backup passphrase. On a new phone, Zyvorli asks for it so you can read your older messages. Nobody, including us, can recover it for you.');
+  $('sheet').classList.add('on');
+}
+function backupSheet(){
+  if(E.state==='restore'){window.zvRestorePrompt();return}
+  if(E.state!=='ready'){toast('Encryption is not ready yet.');return}
+  $('sh').textContent=E.hasBackup?'Change backup passphrase':'Set a backup passphrase';const box=$('disc');box.innerHTML='';
+  const n=elx('div','last','This passphrase lets you read your older messages on a new phone. Use at least 8 characters. If you forget it, nobody can recover it, and older messages on a new phone stay locked.');n.style.cssText='white-space:normal;margin-bottom:8px';box.appendChild(n);
+  const a=h('input','fld');a.type='password';a.placeholder='Backup passphrase';a.autocomplete='new-password';
+  const b=h('input','fld');b.type='password';b.placeholder='Repeat passphrase';b.autocomplete='new-password';b.style.marginTop='8px';
+  const err=h('div','a-err');const go=elx('button','btn','Save');go.style.cssText='width:100%;padding:13px;margin-top:8px';
+  go.onclick=async function(){
+    if(a.value.length<8){err.textContent='Use at least 8 characters.';return}
+    if(a.value!==b.value){err.textContent='The two entries are different.';return}
+    go.disabled=true;
+    try{await E.setBackup(a.value);closeSheet();renderSettings();toast('Backup saved')}catch(e){err.textContent='Could not save. Check your connection.'}
+    go.disabled=false;
+  };
+  box.append(a,b,err,go);$('sheet').classList.add('on');
+}
+
+/* ================= Privacy: who can find me ================= */
+const FIND={Everyone:'everyone','My contacts':'contacts',Nobody:'nobody'},FINDR={everyone:'Everyone',contacts:'My contacts',nobody:'Nobody'};
+async function saveFind(label){
+  try{const r=await sb.from('profiles').update({find_by:FIND[label]}).eq('id',A.user.id);if(r.error)toast('Could not save this setting. Run the latest SQL file.')}catch(e){}
+}
+window.zvFindRow=function(info,opts2){
+  return info('Who can find me',S.find,function(){
+    opts2('Who can find me',['Everyone','My contacts','Nobody'].map(function(x){return {t:x,fn:function(){S.find=x;saveS();saveFind(x);renderSettings()}}}),S.find);
+  });
+};
+async function syncFind(){
+  try{
+    const r=await sb.from('profiles').select('find_by').eq('id',A.user.id).maybeSingle();
+    const v=r.data&&FINDR[r.data.find_by];if(v&&v!==S.find){S.find=v;saveS();if(TAB==='settings')renderSettings()}
+  }catch(e){}
+}
+
+/* ================= Account: data, deletion, legal ================= */
+async function downloadData(){
+  toast('Preparing your data…');
+  try{
+    const me=A.user.id,out={exported:new Date().toISOString(),profile:{name:P.name,username:P.username,bio:P.bio,phone:P.phone,email:P.email},chats:{}};
+    let from=0;
+    for(;;){
+      const r=await sb.from('messages').select('id,sender,recipient,body,created_at,att_name,att_type,att_size,call_kind,call_status,call_dur,deleted_at,edited_at').or('sender.eq.'+me+',recipient.eq.'+me).order('created_at',{ascending:true}).range(from,from+999);
+      if(r.error)throw r.error;
+      const rows=r.data||[];
+      for(const m of rows){
+        const peer=m.sender===me?m.recipient:m.sender;
+        const nm=(RT.alias[peer]||(RT.prof[peer]&&RT.prof[peer].name)||peer);
+        let text=m.body;if(typeof text==='string'&&text.indexOf(E.PFX)===0){const d=await E.decrypt(peer,text);text=d==null?'(could not be decrypted)':d}
+        (out.chats[nm]=out.chats[nm]||[]).push({time:m.created_at,from:m.sender===me?'me':nm,text:m.deleted_at?'(deleted)':text,file:m.att_name||undefined,call:m.call_status?{kind:m.call_kind,status:m.call_status,seconds:m.call_dur}:undefined});
+      }
+      if(rows.length<1000)break;from+=1000;
+    }
+    const blob=new Blob([JSON.stringify(out,null,2)],{type:'application/json'});
+    const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download='zyvorli-my-data.json';document.body.appendChild(a);a.click();setTimeout(function(){URL.revokeObjectURL(a.href);a.remove()},1500);
+    toast('Your data was downloaded');
+  }catch(e){toast('Could not prepare your data.')}
+}
+function deleteSheet(){
+  $('sh').textContent='Delete my account';const box=$('disc');box.innerHTML='';
+  const n=elx('div','last','This permanently deletes your account, profile, messages you sent and received, photos and files, and login. It cannot be undone. Your friends will no longer see your messages. Type DELETE to confirm.');n.style.cssText='white-space:normal;margin-bottom:8px';box.appendChild(n);
+  const i=h('input','fld');i.placeholder='DELETE';i.autocomplete='off';box.appendChild(i);
+  const err=h('div','a-err');box.appendChild(err);
+  const go=elx('button','btn','Delete everything');go.style.cssText='width:100%;padding:13px;margin-top:8px;background:#e53958';
+  go.onclick=async function(){
+    if(i.value.trim()!=='DELETE'){err.textContent='Type DELETE to confirm.';return}
+    go.disabled=true;err.textContent='';
+    try{
+      const me=A.user.id;
+      for(let k=0;k<20;k++){
+        const l=await sb.storage.from('attachments').list(me,{limit:1000});
+        const names=((l&&l.data)||[]).map(function(x){return me+'/'+x.name});
+        if(!names.length)break;
+        await sb.storage.from('attachments').remove(names);
+      }
+      const r=await sb.rpc('delete_account');if(r.error)throw r.error;
+      try{await E.forget(me)}catch(e){}
+      try{Object.keys(localStorage).forEach(function(k){if(/^zv_/.test(k))localStorage.removeItem(k)})}catch(e){}
+      try{await sb.auth.signOut({scope:'local'})}catch(e){}
+      try{localStorage.setItem('zv_flash','Your account was deleted.')}catch(e){}
+      location.reload();
+    }catch(e){err.textContent='Could not delete. Log in again and retry.';go.disabled=false}
+  };
+  box.appendChild(go);$('sheet').classList.add('on');
+}
+
+/* ================= Settings rows ================= */
+window.zvSecurityGroups=function(grp,info,tog,opts2){
+  const cfg=lockCfg();
+  grp('Security',[
+    info('Encryption',{ready:'On',restore:'Locked',off:'…',error:'Off'}[E.state]||'',encInfo),
+    info('Backup passphrase',E.state==='ready'?(E.hasBackup?'Set':'Not set'):(E.state==='restore'?'Unlock':'…'),backupSheet),
+    info('Two-step verification',SEC.mfa==null?'…':SEC.mfa?'On':'Off',mfaSheet),
+    info('App lock',cfg?'On':'Off',lockSheet),
+    info('Logged-in devices','',devicesSheet)
+  ]);
+  grp('Your data and privacy',[
+    info('Share my Zyvorli link','',window.zvShareLink),
+    info('Download my data','',downloadData),
+    info('Privacy policy','',function(){window.open('privacy.html','_blank')}),
+    info('Terms of service','',function(){window.open('terms.html','_blank')}),
+    info('Delete my account','',deleteSheet)
+  ]);
+  mfaStatus();
+};
+
+/* ================= after login + logout ================= */
+window.zvAfterLogin=function(){
+  touchDevice();syncFind();mfaStatus();
+  setInterval(function(){if(document.visibilityState==='visible')touchDevice()},5*60*1000);
+  document.addEventListener('visibilitychange',function(){if(document.visibilityState==='visible')touchDevice()});
+};
+window.zvOnLogout=async function(){
+  try{await sb.from('devices').delete().eq('id',devId())}catch(e){}
+  try{if(E.state==='ready'&&E.hasBackup&&RT.uid)await E.forget(RT.uid)}catch(e){}
+  LS.del(LK);LS.del(LF);
+};
+try{const f=localStorage.getItem('zv_flash');if(f){localStorage.removeItem('zv_flash');setTimeout(function(){toast(f)},1500)}}catch(e){}
+window.zvSec=SEC;
 })();
 
 </script>

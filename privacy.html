@@ -1,0 +1,64 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Privacy Policy - Zyvorli</title><link rel="stylesheet" href="legal.css"><script src="config.js"></script></head><body><main>
+<a class="back" href="./">&larr; Back to Zyvorli</a>
+<h1>Privacy Policy</h1><p class="mut">Last updated: 13 November 2026 &middot; Version 0.9</p>
+
+<div class="note"><b>Plain-language summary.</b> Zyvorli stores only what it needs to run a messenger. Your text messages are end-to-end encrypted when both people have encryption keys. Photos, files and voice messages are private but not yet end-to-end encrypted. We do not sell your data and we show no ads.</div>
+<div class="note"><b>Draft notice for the owner.</b> This text describes how version 0.9 actually works. Have a lawyer review it, and fill in the contact details in <code>config.js</code>, before public launch.</div>
+
+<h2>1. Who we are</h2>
+<p>Zyvorli ("we") is a messaging app operated by the business named in the contact section below. You must be 18 or older to use Zyvorli.</p>
+
+<h2>2. What we collect and why</h2>
+<table><tr><th>Data</th><th>Why</th><th>Notes</th></tr>
+<tr><td>Email address</td><td>Sign in with a one-time code</td><td>Not shown to other users</td></tr>
+<tr><td>Name, username, bio</td><td>So friends can recognise you</td><td>Username and name can be shown to people who find you</td></tr>
+<tr><td>Mobile number</td><td>One number per account; let friends find you</td><td>Not shown to other users. Not yet verified by SMS</td></tr>
+<tr><td>Messages</td><td>Deliver them to the other person</td><td>Text is end-to-end encrypted when both people have keys; otherwise it is stored readable. Who you talk to and when is visible to the service</td></tr>
+<tr><td>Photos, files, voice messages</td><td>Deliver them</td><td>Stored in a private area; only the two people in the chat can open them. Not end-to-end encrypted yet</td></tr>
+<tr><td>Call details</td><td>Ring the other phone and show call history</td><td>Who, when, voice or video, how long. Call audio and video go directly between phones and are encrypted by the browser; we do not record calls</td></tr>
+<tr><td>Contact matching</td><td>Show which of your contacts use Zyvorli</td><td>Only the last 10 digits of numbers are sent to check for matches and they are not stored</td></tr>
+<tr><td>Device and session details</td><td>Show "logged-in devices" and let you sign out other devices</td><td>Browser type, last activity</td></tr>
+<tr><td>Reports</td><td>Handle abuse reports you send</td><td>Reporter, reported person, reason, optional message</td></tr>
+<tr><td>Encryption keys</td><td>End-to-end encryption</td><td>Only your public key and, if you choose, a backup of your private key locked with your passphrase. We cannot open that backup</td></tr></table>
+
+<h2>3. What we do not do</h2>
+<ul><li>We do not sell your data and we do not show advertising in chats.</li><li>We do not read your end-to-end encrypted text messages.</li><li>We do not upload your phone contacts. Matching sends only partial numbers and keeps nothing.</li></ul>
+
+<h2>4. Who processes data for us</h2>
+<ul><li><b>Supabase</b>: database, sign-in, live delivery and file storage.</li>
+<li><b>Brevo</b>: sends the sign-in code email.</li>
+<li><b>GitHub Pages</b>: delivers the app files.</li>
+<li><b>Google STUN servers</b> (and an optional relay service): help two phones find each other for calls. During a call the other person's phone can see your network address unless a relay is used.</li></ul>
+<p>These providers may store data outside India. The storage region is chosen when the project is created.</p>
+
+<h2>5. Your control and rights</h2>
+<ul><li><b>Delete messages:</b> delete for yourself, or for everyone (this also removes photos and files from our storage). Edit a text message within 15 minutes.</li>
+<li><b>Download your data:</b> Settings &rarr; Your data and privacy &rarr; Download my data.</li>
+<li><b>Delete your account:</b> Settings &rarr; Delete my account. This removes your profile, messages you sent and received, calls, files and keys from our systems.</li>
+<li><b>Who can find you:</b> default is "My contacts". You can choose Everyone or Nobody.</li>
+<li><b>Block and report</b> any person from the chat menu.</li>
+<li><b>Security:</b> app lock, two-step verification and a list of logged-in devices with remote sign-out.</li>
+<li>Under India's Digital Personal Data Protection Act, 2023 you may ask to access, correct or erase your data, and to nominate someone to act for you. Use the contact details below.</li></ul>
+
+<h2>6. How long we keep data</h2>
+<p>Messages and files are kept until you or the other person delete them or the account is deleted. Call signalling data is temporary. Reports are kept as long as needed to deal with abuse and legal duties. Deleted accounts are removed from active systems immediately; backups kept by our providers expire on their own schedule.</p>
+
+<h2>7. Security</h2>
+<p>All connections use HTTPS. Access to every table is restricted by database rules so a person can only read their own chats, calls and files. We limit searches, messages and calls to reduce spam and harvesting of numbers. No system is perfectly secure; please use app lock and keep your devices updated.</p>
+
+<h2>8. Legal requests</h2>
+<p>We may disclose data when the law requires it, and will tell you unless the law forbids it. Because text is end-to-end encrypted, we cannot hand over readable content of those messages.</p>
+
+<h2>9. Changes</h2>
+<p>If we change this policy in a way that matters, we will tell you in the app before it applies.</p>
+
+<h2>Contact and grievance officer</h2>
+<p>Questions, complaints, data requests or reports of illegal content can be sent to:</p>
+<p id="gv"></p>
+<script>
+(function(){var c=window.ZV_CONFIG||{},e=document.getElementById('gv');function ph(x,t){return x?document.createTextNode(x):Object.assign(document.createElement('span'),{className:'ph',textContent:t})}
+var n=ph(c.grievanceName,'[grievance officer name: add in config.js]'),m=c.grievanceEmail?Object.assign(document.createElement('a'),{href:'mailto:'+c.grievanceEmail,textContent:c.grievanceEmail}):ph('','[grievance email: add in config.js]'),b=ph(c.businessName,'[business name]'),a=ph(c.businessAddress,'[business address]');
+e.append(n,document.createElement('br'),m,document.createElement('br'),b,document.createElement('br'),a)})();
+</script>
+<p class="mut">We aim to reply to complaints promptly and to resolve them within the time the law requires.</p>
+</main></body></html>

@@ -1,8 +1,8 @@
 // Zyvorli service worker: the app opens instantly from the saved copy,
 // and a fresh copy is fetched quietly in the background for next time.
 // Bump V on every release so old copies are replaced.
-const V = 'zyvorli-v9';
-const FILES = ['./', 'index.html', 'config.js', 'supabase.js', 'manifest.webmanifest', 'icon-192.png', 'icon-512.png', 'icon-maskable-512.png', 'apple-touch-icon.png', 'favicon.png'];
+const V = 'zyvorli-v10';
+const FILES = ['./', 'index.html', 'config.js', 'supabase.js', 'manifest.webmanifest', 'icon-192.png', 'icon-512.png', 'icon-maskable-512.png', 'apple-touch-icon.png', 'favicon.png', 'privacy.html', 'terms.html', 'legal.css'];
 
 self.addEventListener('install', e => {
   e.waitUntil(caches.open(V).then(c => c.addAll(FILES)).then(() => self.skipWaiting()));
